@@ -1,0 +1,170 @@
+sims_functions
+================
+Lily Andrews
+2023-11-28
+
+Create data generating model (dgmodel)
+
+``` r
+#' Simulation model of DAG for the role of causal and non-causal biomarkers in relation to liability to disease
+#'
+#' @param nid number of individuals
+#' @param nsnp number of SNPs
+#' @param gc_maf causal biomarker minor allele frequency input
+#' @param b_gl genetic liability from discovered SNPs
+#' @param rsq_prs h-squared of y explained
+#' @param rsq_zl H-squared of y when combined with PRS
+#' @param d_prev disease prevalence
+#' @param b_lr0 beta of disease liability to non-causal biomarker (pre-diagnosis)
+#' @param b_c0l beta of causal biomarker (pre-diagnosis) to disease liability
+#' @param gr_maf non-causal biomarker minor allele frequency input
+#' @param rsq_gr0 r-squared value for the non-causal pQTL 
+#' @param rsq_gc0 r-squared value for the causal pQTL
+#' @param b_u1r1 beta of unmeasured confounder 1 to non-causal marker (post-diagnosis)
+#' @param b_u1l beta of unmeasured confounder 1 to disease liability
+#' @param b_u2c1 beta of unmeasured confounder 2 to causal biomarker (post diagnosis)
+#' @param b_u2l beta of unmeasured confounder 2 to disease liability
+#' @param b_dr1 beta of disease to non-causal biomarker (post diagnosis)
+#' @param b_dc1 beta of disease to causal biomarker (post diagnosis)
+#' @param b_c0c1 beta of causal biomarker (pre diagnosis) to causal biomarker (post diagnosis)
+#' @param b_r0r1 beta of non-causal biomarker (pre diagnosis) to non-causal biomarker (post diagnosis)
+#' @param b_u2c0 beta of unmeasured confounder 2 to causal biomarker (pre diagnosis)
+#' @param b_u1r0 beta of unmeasured confounder 1 to non-causal biomarker (pre diagnosis)
+#' @param b_gcc0 beta of causal genotype matrix to causal biomarker (pre diagnosis)
+#' @param b_lc0 ##CONFUSED BY THIS AS IT WOULD BE GOING IN THE WRONG DIRECTION SHOULD IT BE b_c0l which is already mentioned before
+#' @param b_u1d ##would this not be b_u1l*b_ld
+#' @param b_u2d ##would this not be b_u2l*b_ld
+#'
+#' @return
+#' @export
+#'
+#' @examples
+
+dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_zl, d_prev, b_lr0, b_c0l, gr_maf, rsq_gr0, rsq_gc0, b_u1r1, b_u1l, b_u2c1, b_u2l, b_dr1, b_dc1, b_c0c1, b_r0r1, b_u2c0, b_u1r0, b_gcc0, b_lc0, b_u1d, b_u2d)
+{
+  u1 <- rnorm(nid) #normal distribution of unmeasured confounder
+  u2 <- rnorm(nid) #normal distribution of unmeasured confounder
+  gc <- make_geno(nid, nsnp, gc_maf) #create genotype matrix for causal variant
+  gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant 
+  # TODO need to fix this
+  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) #we hypothesised one SNP down this route? no need for unmeasured confounder in this case? rnorm introduces the variance into the equation 
+  
+  # TODO need to fix this
+  rsq_prs <- rsq_prs - (0.1)^2 # would 0.1 be b_prsl
+  prs <- scale(gc %*% b_gl) #b_gl does this mean beta genetic liability or route PRS to disease liability, why do we include this line if prs_w is already used
+  prs_w <- scale(gc[,-1] %*% b_gl[-1]) #had to remove the SNP as the liability calculated later on would include an extra SNP
+  z <- rnorm(nid) #included the rest of the known SNPs
+  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l #total genetic liability to disease, decided not to add error into liability to avoid diagram c from happening https://www.nature.com/articles/nrg3377/figures/1 
+  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) # instead of sqrt(rsq_gr0) could this be b_grc0
+  # generate probability of disease
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
+  
+  # generate random disease outcome
+  # switch this 0/1 or fix simualteGP function
+  d <- rbinom(nid, 1, prob_l) #case as 0 control is 1
+  d <- abs(d-1) #this function flips case and control which makes case 1 and control 0
+  #response to disease state
+  c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesised one SNP down this route? would 0.1 be sqrt(rsq_gc0)
+  
+  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
+
+  phen <- tibble(
+    u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
+  )
+  return(list(geno=gc, phen=phen)) #check genotype would be Gc when it was G
+}
+```
+
+\#think about the one snp of PC variable
+
+List of expected variances from the data generating model: v_u1 ~ N(0,1)
+v_u2 = 1 v_l = 1 v_pc = 1 v_pr = 1 v_z = 1 v_d = Binomial(n=1, p=d_prev
+\* (1-d_prev))
+
+Check output of data generating model (dgmodel_check)
+
+``` r
+dgmodel_check <- function(dat)
+{
+  print(tibble(
+    col = names(dat$phen),
+    vars = apply(dat$phen, 2, var), ##what does var do here, does ti look for the variance between values? 2 means col sums and 1 is row sums
+    means = colMeans(dat$phen)
+  ))
+  print(cor(dat$phen$prs, dat$phen$l)^2) #compare PRS to disease liability
+}
+```
+
+Assess observational, case control and protein GWAS data
+(dgmodel_analysis)
+
+``` r
+#looking at different scenerios, all, case control, protein gwas
+dgmodel_analysis <- function(dat, ncase=1000, ncontrol=1000, protein_gwas=10000)
+{
+  d <- dat$phen
+  res_all <- bind_rows( 
+    fast_assoc(y=d$d, x=d$prs) %>% as_tibble() %>% mutate(x="prs", y="d"), #fast_assoc simple linear regression for prs and disease outcome
+    fast_assoc(y=d$c0, x=d$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=d$r0, x=d$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=d$prs, x=d$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=d$prs, x=d$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=d$c1, x=d$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=d$r1, x=d$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=d$prs, x=d$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=d$prs, x=d$r1) %>% as_tibble() %>% mutate(x="prs", y="r1")
+  ) %>%
+    mutate(study="all")
+  
+  # note - need to switch this once 0/1 is fixed
+  obs <- bind_rows(d[d$d == 1,][1:ncontrol,], d[d$d == 0,][1:ncase,]) ##shouldn't this be the other way round as case is 1 and control 0
+  
+  res_obs <- bind_rows(
+    fast_assoc(y=obs$d, x=obs$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
+    fast_assoc(y=obs$c0, x=obs$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=obs$r0, x=obs$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=obs$prs, x=obs$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=obs$prs, x=obs$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=obs$c1, x=obs$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=obs$r1, x=obs$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=obs$prs, x=obs$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=obs$prs, x=obs$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+  )  %>%
+    mutate(study="observational")
+
+  d <- d[1:protein_gwas, ]
+  res_protein <- bind_rows(
+    fast_assoc(y=d$d, x=d$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
+    fast_assoc(y=d$c0, x=d$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=d$r0, x=d$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=d$prs, x=d$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=d$prs, x=d$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=d$c1, x=d$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=d$r1, x=d$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=d$prs, x=d$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=d$prs, x=d$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+  ) %>%
+    mutate(study="protein_gwas")
+  
+  return(bind_rows(res_all, res_obs, res_protein))
+}
+```
+
+See reverse MR approach to find non causal markers (ivw_analysis)
+
+``` r
+#reverse MR approach using prs to find non causal biomarkers
+#IVW and two-stage least squares (should be the same value)
+ivw_analysis <- function(dat){
+  d <- dat$phen
+  gen <- dat$geno_causal
+dat <- get_effs(d$prs, d$r0, gen) #might need to change this genetic matrix
+print("MR")
+mr(dat, metho="mr_ivw") %>% str()
+# MR using fixed effects IVW [two-stage least squares method] use system fit package
+print("2SLS")
+summary(systemfit::systemfit(d$prs ~ d$r0, method="2SLS", inst = ~gen)) #2SLS #might need to change this genetic matrix ##issue with this code as getting NAs
+print("Observational")
+summary(lm(d$prs ~ d$r0)) #confounded observational estimate
+}
+```
