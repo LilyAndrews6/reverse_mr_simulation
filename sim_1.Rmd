@@ -15,7 +15,7 @@ Simulation 1
 
 Data generating model:
 ```{r}
-rmarkdown::render("sims_functions.Rmd")
+rmarkdown::render(".R/sims_functions.Rmd")
 dat <- dgmodel(
   nid=100000, #number of individuals
   nsnp=99, #number of snps
