@@ -40,7 +40,7 @@ Create data generating model (dgmodel)
 #'
 #' @examples
 
-dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_zl, d_prev, b_lr0, b_c0l, gr_maf, rsq_gr0, rsq_gc0, b_u1r1, b_u1l, b_u2c1, b_u2l, b_dr1, b_dc1, b_c0c1, b_r0r1, b_u2c0, b_u1r0, b_gcc0, b_lc0, b_u1d, b_u2d)
+dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0l, gr_maf, rsq_gr0, rsq_gc0, b_u1r1, b_u1l, b_u2c1, b_u2l, b_dr1, b_dc1, b_c0c1, b_r0r1, b_u2c0, b_u1r0, b_gcc0, b_lc0, b_u1d, b_u2d, b_gcc1)
 {
   u1 <- rnorm(nid) #normal distribution of unmeasured confounder
   u2 <- rnorm(nid) #normal distribution of unmeasured confounder
@@ -48,25 +48,32 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_zl, d_prev, b_lr0, b_c
   gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant 
   # TODO need to fix this
   c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) #we hypothesised one SNP down this route? no need for unmeasured confounder in this case? rnorm introduces the variance into the equation 
+   #sqrt((rsq_gc0+b_u2c0^2)/(n-1))
   
   # TODO need to fix this
-  rsq_prs <- rsq_prs - (0.1)^2 # would 0.1 be b_prsl
+  rsq_prs <- rsq_prs - (0.1)^2 # add on the environmental aspect?
   prs <- scale(gc %*% b_gl) #b_gl does this mean beta genetic liability or route PRS to disease liability, why do we include this line if prs_w is already used
   prs_w <- scale(gc[,-1] %*% b_gl[-1]) #had to remove the SNP as the liability calculated later on would include an extra SNP
-  z <- rnorm(nid) #included the rest of the known SNPs
+  z <- rnorm(nid) #included the rest of the known genetic variants
   l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l #total genetic liability to disease, decided not to add error into liability to avoid diagram c from happening https://www.nature.com/articles/nrg3377/figures/1 
   r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) # instead of sqrt(rsq_gr0) could this be b_grc0
+  #sqrt((rsq_gr0+b_lr0^2+b_u1r0^2)/(n-1))
+
   # generate probability of disease
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_z + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
+  #change b_u1d to b_u1l and same with u2
   
   # generate random disease outcome
   # switch this 0/1 or fix simualteGP function
   d <- rbinom(nid, 1, prob_l) #case as 0 control is 1
+  ##can change to 1-prob_l to flip this removing next line
   d <- abs(d-1) #this function flips case and control which makes case 1 and control 0
   #response to disease state
-  c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesised one SNP down this route? would 0.1 be sqrt(rsq_gc0)
+  c1 <- scale(gc[,1]) * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesised one SNP down this route? 
+  #sqrt((b_gcc1^2+b_u2c1^2+b_c0c1^2)/(n-1))
   
   r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
+   #sqrt((rsq_gc0+b_lr0^2+b_u1r1^2)/(n-1))
 
   phen <- tibble(
     u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
@@ -93,7 +100,7 @@ dgmodel_check <- function(dat)
 {
   print(tibble(
     col = names(dat$phen),
-    vars = apply(dat$phen, 2, var), ##what does var do here, does ti look for the variance between values? 2 means col sums and 1 is row sums
+    vars = apply(dat$phen, 2, var), ##what does var do here, does it look for the variance between values? 2 means col sums and 1 is row sums
     means = colMeans(dat$phen)
   ))
   print(cor(dat$phen$prs, dat$phen$l)^2) #compare PRS to disease liability
@@ -103,7 +110,7 @@ dgmodel_check <- function(dat)
 Assess observational, case control and protein GWAS data (dgmodel_analysis)
 ```{r}
 #looking at different scenerios, all, case control, protein gwas
-dgmodel_analysis <- function(dat, ncase=1000, ncontrol=1000, protein_gwas=10000)
+dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas)
 {
   d <- dat$phen
   res_all <- bind_rows( 
@@ -168,6 +175,58 @@ print("2SLS")
 summary(systemfit::systemfit(d$prs ~ d$r0, method="2SLS", inst = ~gen)) #2SLS #might need to change this genetic matrix ##issue with this code as getting NAs
 print("Observational")
 summary(lm(d$prs ~ d$r0)) #confounded observational estimate
+}
+```
+
+## parallel
+```{r}
+dgmodel_time <- function(nid=100000, 
+  nsnp=99, 
+  gc_maf=runif(99, 0.05, 0.95), 
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, 
+  rsq_z=0.19, 
+  d_prev=5/1000, 
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   
+  rsq_gc0=0.1,   
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1)
+{
+  u1 <- rnorm(nid) 
+  u2 <- rnorm(nid) 
+  gc <- make_geno(nid, nsnp, gc_maf) 
+  gr <- rbinom(nid, 2, gr_maf) 
+  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) 
+  rsq_prs <- rsq_prs - (0.1)^2 
+  prs <- scale(gc %*% b_gl) 
+  prs_w <- scale(gc[,-1] %*% b_gl[-1]) 
+  z <- rnorm(nid) 
+  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l 
+  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) 
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+  d <- rbinom(nid, 1, prob_l)
+  d <- abs(d-1) 
+  c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) 
+  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
+  phen <- tibble(
+    u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
+  )
+  return(list(geno=gc, phen=phen)) 
 }
 ```
 
