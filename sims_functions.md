@@ -1,4 +1,4 @@
-sims_functions
+Sims Functions
 ================
 Lily Andrews
 2023-11-28
@@ -13,7 +13,7 @@ Create data generating model (dgmodel)
 #' @param gc_maf causal biomarker minor allele frequency input
 #' @param b_gl genetic liability from discovered SNPs
 #' @param rsq_prs h-squared of y explained
-#' @param rsq_zl H-squared of y when combined with PRS
+#' @param rsq_z H-squared of y when combined with PRS
 #' @param d_prev disease prevalence
 #' @param b_lr0 beta of disease liability to non-causal biomarker (pre-diagnosis)
 #' @param b_c0l beta of causal biomarker (pre-diagnosis) to disease liability
@@ -55,7 +55,7 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0
   prs <- scale(gc %*% b_gl) #b_gl does this mean beta genetic liability or route PRS to disease liability, why do we include this line if prs_w is already used
   prs_w <- scale(gc[,-1] %*% b_gl[-1]) #had to remove the SNP as the liability calculated later on would include an extra SNP
   z <- rnorm(nid) #included the rest of the known genetic variants
-  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l #total genetic liability to disease, decided not to add error into liability to avoid diagram c from happening https://www.nature.com/articles/nrg3377/figures/1 
+  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_z) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l #total genetic liability to disease, decided not to add error into liability to avoid diagram c from happening https://www.nature.com/articles/nrg3377/figures/1 
   r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) # instead of sqrt(rsq_gr0) could this be b_grc0
   #sqrt((rsq_gr0+b_lr0^2+b_u1r0^2)/(n-1))
 
@@ -82,7 +82,7 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0
 }
 ```
 
-\#think about the one snp of PC variable
+think about the one snp of PC variable
 
 List of expected variances from the data generating model: v_u1 ~ N(0,1)
 v_u2 = 1 v_l = 1 v_pc = 1 v_pr = 1 v_z = 1 v_d = Binomial(n=1, p=d_prev
@@ -176,7 +176,7 @@ summary(lm(d$prs ~ d$r0)) #confounded observational estimate
 }
 ```
 
-## parallel
+Parallel
 
 ``` r
 dgmodel_time <- function(nid=100000, 
@@ -215,9 +215,9 @@ dgmodel_time <- function(nid=100000,
   prs <- scale(gc %*% b_gl) 
   prs_w <- scale(gc[,-1] %*% b_gl[-1]) 
   z <- rnorm(nid) 
-  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l 
+  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_z) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l 
   r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) 
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_z + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
   d <- rbinom(nid, 1, prob_l)
   d <- abs(d-1) 
   c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) 
@@ -226,5 +226,19 @@ dgmodel_time <- function(nid=100000,
     u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
   )
   return(list(geno=gc, phen=phen)) 
+}
+```
+
+Parallel for check
+
+``` r
+check_time <- function(dgmodel_time)
+{
+  print(tibble(
+    col = names(dat$phen),
+    vars = apply(dat$phen, 2, var), ##what does var do here, does it look for the variance between values? 2 means col sums and 1 is row sums
+    means = colMeans(dat$phen)
+  ))
+  print(cor(dat$phen$prs, dat$phen$l)^2) #compare PRS to disease liability
 }
 ```
