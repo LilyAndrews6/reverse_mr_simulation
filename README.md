@@ -1,1 +1,1 @@
-# reverse_mr_simulation
+# Simulating Reverse Mendelian Randomization
