@@ -1,1 +1,1 @@
-# Simulating Eeverse Mendelian Randomization
+# Simulating Reverse Mendelian Randomization
