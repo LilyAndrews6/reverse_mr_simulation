@@ -1,0 +1,57 @@
+---
+title: "Simulation 1"
+author: "Lily Andrews"
+date: "2023-11-28"
+output: github_document
+---
+Install packages
+```{r}
+library(tibble)
+library(simulateGP)
+library(dplyr)
+```
+
+Simulation 1
+
+Data generating model:
+```{r}
+rmarkdown::render("sims_functions.Rmd")
+dat <- dgmodel(
+  nid=100000, #number of individuals
+  nsnp=99, #number of snps
+  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, #h-squared value
+  rsq_z=0.19, #to total 0.25 of total H-squared
+  d_prev=5/100000, 
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   # this is a pqtl - often large effect size
+  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1,
+  b_gcc1=0.1)
+
+dat$phen
+```
+Variance and means of variables from data generating model and correlation between PRS and disease liability
+```{r}
+dgmodel_check(dat)
+```
+```{r}
+dgmodel_analysis(dat, ncase=1000, ncontrol=1000, protein_gwas=1000)
+```
+
