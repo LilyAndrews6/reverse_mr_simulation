@@ -47,8 +47,8 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0
   gc <- make_geno(nid, nsnp, gc_maf) #create genotype matrix for causal variant
   gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant 
   # TODO need to fix this
-  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) #we hypothesised one SNP down this route? no need for unmeasured confounder in this case? rnorm introduces the variance into the equation 
-   #sqrt((rsq_gc0+b_u2c0^2)/(n-1))
+  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) #we hypothesised one SNP down this route? no need for unmeasured confounder in this case? rnorm introduces the variance into the equation. We are assuming variance is 1
+   
   
   # TODO need to fix this
   rsq_prs <- rsq_prs - (0.1)^2 # add on the environmental aspect?
@@ -56,8 +56,7 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0
   prs_w <- scale(gc[,-1] %*% b_gl[-1]) #had to remove the SNP as the liability calculated later on would include an extra SNP
   z <- rnorm(nid) #included the rest of the known genetic variants
   l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_z) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l #total genetic liability to disease, decided not to add error into liability to avoid diagram c from happening https://www.nature.com/articles/nrg3377/figures/1 
-  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) # instead of sqrt(rsq_gr0) could this be b_grc0
-  #sqrt((rsq_gr0+b_lr0^2+b_u1r0^2)/(n-1))
+  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) #  We are assuming variance is 1
 
   # generate probability of disease
   prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_z + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
@@ -69,11 +68,9 @@ dgmodel <- function(nid, nsnp, gc_maf, b_gl, rsq_prs, rsq_z, d_prev, b_lr0, b_c0
   ##can change to 1-prob_l to flip this removing next line
   d <- abs(d-1) #this function flips case and control which makes case 1 and control 0
   #response to disease state
-  c1 <- scale(gc[,1]) * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesised one SNP down this route? 
-  #sqrt((b_gcc1^2+b_u2c1^2+b_c0c1^2)/(n-1))
+  c1 <- scale(gc[,1]) * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesised one SNP down this route? We are assuming variance is 1
   
-  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
-   #sqrt((rsq_gc0+b_lr0^2+b_u1r1^2)/(n-1))
+  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) #We are assuming variance is 1
 
   phen <- tibble(
     u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
