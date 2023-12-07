@@ -55,3 +55,74 @@ dgmodel_check(dat)
 dgmodel_analysis(dat, ncase=1000, ncontrol=1000, protein_gwas=1000)
 ```
 
+##to trial
+#prevalence of disease in population - e.g. if no disease in population can it still predict?
+Scenerio - Alter heritability explained
+```{r}
+set.seed(100)
+reps = 1000
+scenerio <- 1
+dat <- dgmodel(
+  nid=100000, #number of individuals
+  nsnp=99, #number of snps
+  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, 
+  rsq_zl=0.19, 
+  d_prev=5/1000, 
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   # this is a pqtl - often large effect size
+  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1)
+```
+
+Scenerio - Alteration of causal SNPs
+```{r}
+set.seed(13)
+reps = 1000
+scenerio <- 2
+dat <- dgmodel(
+  nid=100000, #number of individuals
+  nsnp=99, #number of snps
+  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, 
+  rsq_zl=0.19, 
+  d_prev=5/1000, 
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   # this is a pqtl - often large effect size
+  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1)
+```
+
+
