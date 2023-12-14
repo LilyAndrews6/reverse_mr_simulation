@@ -194,6 +194,26 @@ Test how well the model runs in all, case control, observational and protein gwa
 library(dplyr)
 dgmodel_analysis(dat)
 ```
+```{r}
+library(systemfit)
+library(TwoSampleMR)
+#reverse MR approach using prs to find non causal biomarkers
+#IVW and two-stage least squares (should be the same value)
+ivw_analysis <- function(dat){
+  d <- dat$phen
+  gen <- dat$geno_causal
+dat <- get_effs(d$prs, d$r0, gen) #might need to change this genetic matrix
+print("MR")
+mr(dat, metho="mr_ivw") %>% str()
+# MR using fixed effects IVW [two-stage least squares method] use system fit package
+print("2SLS")
+summary(systemfit::systemfit(d$prs ~ d$r0, method="2SLS", inst = ~gen)) #2SLS #might need to change this genetic matrix ##issue with this code as getting NAs
+print("Observational")
+summary(lm(d$prs ~ d$r0)) #confounded observational estimate
+}
+#fixed_effect_ivw <- bgt1 / bgt2 #fixed_effect_ivw <- cov(g,y)/cov(g,x)
+ivw_analysis(dat)
+```
 
 Scenerio 1 - Alter heritability explained
 ```{r}
