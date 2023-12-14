@@ -124,5 +124,90 @@ dat <- dgmodel(
   b_u1d=0.1, 
   b_u2d=0.1)
 ```
+Apply this to pQTL data (deCODE)
+```{r}
+#first example
+dat <- dgmodel(
+  nid=35559, #number of individuals
+  nsnp=99, #number of snps
+  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  rsq_zl=0.19, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  d_prev=5/1000, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   # this is a pqtl - often large effect size
+  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1)
 
+system.time(output <- lapply(replication, dgmodel)) 
+```
+Apply this to sun
+```{r}
+dgmodel <- function(nid=3301, 
+  nsnp=99, 
+  gc_maf=runif(99, 0.05, 0.95), #99 SNPs and no rare variants
+  b_gl=rnorm(99), 
+  rsq_prs=0.06, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  rsq_zl=0.19, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  d_prev=5/1000, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
+  b_lr0=sqrt(0.1), 
+  b_c0l=sqrt(0.01), 
+  gr_maf=0.5, 
+  rsq_gr0=0.1,   
+  rsq_gc0=0.1,   
+  b_u1r1=0.1, 
+  b_u1l=0.1, 
+  b_u2c1=0.1, 
+  b_u2l=0.1, 
+  b_dr1=0.1, 
+  b_dc1=0.1, 
+  b_c0c1=0.1, 
+  b_r0r1=0.1, 
+  b_u2c0=0.1, 
+  b_gcc0=0.1, 
+  b_lc0=0.1, 
+  b_u1r0=0.1, 
+  b_u1d=0.1, 
+  b_u2d=0.1)
+{
+  u1 <- rnorm(nid) 
+  u2 <- rnorm(nid) 
+  gc <- make_geno(nid, nsnp, gc_maf) 
+  gr <- rbinom(nid, 2, gr_maf) 
+  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) 
+  rsq_prs <- rsq_prs - (0.1)^2 
+  prs <- scale(gc %*% b_gl) 
+  prs_w <- scale(gc[,-1] %*% b_gl[-1]) 
+  z <- rnorm(nid) 
+  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l 
+  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) 
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+  d <- rbinom(nid, 1, prob_l)
+  d <- abs(d-1) 
+  c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) 
+  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
+  phen <- tibble(
+    u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
+  )
+  return(list(geno=gc, phen=phen)) 
+}
+system.time(results <- lapply(replication, dgmodel)) #time without paralleisation
+system.time(results <- mclapply(replication, dgmodel, mc.cores = numCores)) #time with addition of parallelisation
+```
 

@@ -240,3 +240,60 @@ check_time <- function(dgmodel_time)
 }
 ```
 
+Simulate known GWAS hits for glioma
+```{r}
+library(dplyr)
+##simulating only 2 gwas hits but we have 11
+gwashits <- tribble(
+    ~beta, ~af,
+    0.1, 0.5,
+    0.2, 0.3
+)
+ 
+# model
+# l = a + Gb + u + e
+ 
+ 
+#rsq_Ep
+ 
+n <- 10000
+G <- sapply(gwashits$af, \(x) rbinom(n, 2, x))
+dim(G)
+ 
+#h2_l
+# var(l) = 1
+#var(l) = Vg + Ve
+ 
+#h2_l <- Vg/(Vl)
+ 
+#Vl <- 1 variance of liability
+#Vg <- h2_l * Vl
+#Ve <- Vg/h2_l - Vg
+ 
+#E <- rnorm(n, sqrt(Ve))
+ 
+rsq_gl <- 2*gwashits$af*(1-gwashits$af) * gwashits$beta^2 / Vl
+
+#below we assume equal split of rsq to make g -> l (route is g ->p ->l)
+rsq_gp <- sqrt(rsq_gl)
+rsq_pl <- sqrt(rsq_gl)
+ 
+ 
+# rsq_gp = beta^2 var(g) / var(p)
+Vp <- rep(1, nrow(gwashits))
+ 
+beta_gp <- sqrt(rsq_gl * Vp / (2*gwashits$af*(1-gwashits$af)))
+beta_pl <- sqrt(rsq_pl * Vl / Vp)
+ 
+# g -> p -> l
+u <- rnorm(n) #unmeasured confounder
+# g -> p
+P <- G * beta_gp + CONFOUNDER + ERROR
+P <- G * beta_gp + u*beta_up + rnorm(n, sd=sqrt(1-beta_gp^2-beta_up^2))
+#p -> l
+#for now assuming unmeasured confounder is one estimate for all GWAS hits
+l <- a + G %*% gwashits$beta +CONFOUNDER + ERROR
+# a is constant term so doesn't need to be included
+l <- G %*% gwashits$beta +u*beta_ul + rnorm(n, sd=sqrt(1-beta_pl^2-beta_ul^2))
+```
+
