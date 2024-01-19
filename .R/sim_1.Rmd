@@ -218,7 +218,3 @@ system.time(results <- lapply(replication, dgmodel)) #time without paralleisatio
 system.time(results <- mclapply(replication, dgmodel, mc.cores = numCores)) #time with addition of parallelisation
 ```
 
-```{r eval=FALSE, include=FALSE}
-Don't include this senstivite information on github
-```
-
