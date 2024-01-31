@@ -17,12 +17,12 @@ Data generating model using results from INTERVAL pQTL dataset (https://www.natu
 ```{r}
 rmarkdown::render(".R/sims_functions.Rmd")
 rev_mr_result <- tribble(
-  ~beta, ~prot,
- 0.0880, "HMGCS1",
- 0.0832, "ATAD2",
- 0.0829, "BMPER",
- 0.0827, "IL5",
- 0.0827, "IL23R",
+  ~beta, ~prot, ~rsq_lr0,
+ 0.0880, "HMGCS1", 0.2040,
+ 0.0832, "ATAD2", 0.1824,
+ 0.0829, "BMPER", 0.1811,
+ 0.0827, "IL5", 0.1802,
+ 0.0827, "IL23R", 0.1802,
 )
 
 for(row in 1:nrow(rev_mr_result)){
@@ -32,12 +32,13 @@ dat <- dgmodel(nid=10000000, #making large sample size so enough individuals for
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
-  b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
+  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
   b_c0l=sqrt(0.01), 
   gc_maf=0.5, #don't think this is needed anymore
   gr_maf=0.5, #need to estimate this allele frequency
   rsq_gr0=0.1,   
-  rsq_gc0=0.1,   
+  rsq_gc0=0.1, 
+  rsq_lr0=rev_mr_result[row,]$rsq_lr0,
   b_u1r1=0.1, 
   b_u1l=0.1, 
   b_u2c1=0.1, 
@@ -53,6 +54,53 @@ dat <- dgmodel(nid=10000000, #making large sample size so enough individuals for
   b_u1d=0.1, 
   b_u2d=0.1, 
   b_gcc1=0.1,
+  var_l=1, #estimated variance of liability to be 1
+  vp=1) #estimated variance of protein to be 1
+
+dgmodel_check(dat)
+
+dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)}
+```
+Set terms to 0 to check results
+```{r}
+rev_mr_result <- tribble(
+  ~beta, ~prot, ~rsq_lr0,
+ 0.0880, "HMGCS1", 0.2040,
+ 0.0832, "ATAD2", 0.1824,
+ 0.0829, "BMPER", 0.1811,
+ 0.0827, "IL5", 0.1802,
+ 0.0827, "IL23R", 0.1802,
+)
+
+for(row in 1:nrow(rev_mr_result)){
+dat <- dgmodel(nid=10000000, #making large sample size so enough individuals for case control analysis
+  nsnp=99, #don't think we need this variable anymore
+  b_gl=rnorm(99), #no need for this term anymore
+  h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
+  b_c0l=0, 
+  gc_maf=0, #don't think this is needed anymore
+  gr_maf=0.20, #need to estimate this allele frequency
+  rsq_gr0=0,   
+  rsq_gc0=0, 
+  rsq_lr0=0,
+  b_u1r1=0, 
+  b_u1l=0, 
+  b_u2c1=0, 
+  b_u2l=0, 
+  b_dr1=0, 
+  b_dc1=0, 
+  b_c0c1=0, 
+  b_r0r1=0, 
+  b_u2c0=0, 
+  b_gcc0=0, 
+  b_lc0=0,
+  b_u1r0=0, 
+  b_u1d=0, 
+  b_u2d=0, 
+  b_gcc1=0,
   var_l=1, #estimated variance of liability to be 1
   vp=1) #estimated variance of protein to be 1
 

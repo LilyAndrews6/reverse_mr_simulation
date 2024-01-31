@@ -308,7 +308,7 @@ dgmodel <- function(nid, #3301 for protein and 30686 for GWAS
   h2_known, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   d_prev, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
-  b_lr0, 
+  rsq_lr0, 
   b_c0l, 
   gc_maf,
   gr_maf, 
@@ -384,10 +384,8 @@ gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant
   
   # won't need to remove gwashits as PRS is total together prs_w <- scale(prs[,-num_c0] %*% b_gl[-num_c0]) #had to remove number of GWAS hits from prs
   l <- prs * sqrt(rsq_prs) + l #combine PRS and liability from known GWAS hits 
-  
-  #rsq_lr0 <- 2*gwashits$af*(1-gwashits$af) * b_lr0^2 / var_l #NEED TO WORK OUT ALLELE FREQ AS PRS INCLUDES MULTIPLE SNPS NEED TO ADD R-SQUARED LATER
    
-  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) #  We are assuming variance is 1
+  r0 <- scale(gr) * sqrt(rsq_gr0) + l * rsq_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) #  We are assuming variance is 1
 
   # generate probability of disease
   prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
@@ -402,7 +400,7 @@ gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant
   c1 <- scale(gc) * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesized one SNP down this route? We are assuming variance is 1
     #response to disease state NEED TO ADD ALTERATION OF DISEASE STATE WHETHER THIS IS INCREASED OR DECREASED
   
-  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) #We are assuming variance is 1
+  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-rsq_lr0^2-b_u1r1^2)) #We are assuming variance is 1
 #have left this for now but do we need to add element of change for non-causal markers in disease process
    phen <- tibble(
     u1, u2, r0, r1, c0[,1],c0[,2],c0[,3],c0[,4],c0[,5],c0[,6],c0[,7],c0[,8], c0[,9], c0[,10], c0[,11], c0[,12], c0[,13], c0[,14], c0[,15], c0[,16], c0[,17], c1[,1], c1[,2], c1[,3], c1[,4], c1[,5], c1[,6], c1[,7], c1[,8], c1[,9], c1[,10], c1[,11], c1[,12], c1[,13], c1[,14], c1[,15], c1[,16], c1[,17], prs, l, prob_l, d
