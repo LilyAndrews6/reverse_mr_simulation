@@ -670,7 +670,10 @@ ivw_analysis <- function(dat){
   phen <- dat$phen
   gen <- dat$geno
 mr_dat <- get_effs(phen$prs, phen$r0, gen) #might need to change this genetic matrix
-print("MR")
+print("Reverse MR")
+mr(mr_dat, metho="mr_ivw") %>% str()
+mr_dat <- get_effs(phen$c1, phen$d, gen) #might need to change this genetic matrix
+print("Forward MR")
 mr(mr_dat, metho="mr_ivw") %>% str()
 # MR using fixed effects IVW [two-stage least squares method] use system fit package
 print("2SLS")
