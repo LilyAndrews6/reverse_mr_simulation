@@ -5,10 +5,11 @@ date: "2023-11-28"
 output: github_document
 ---
 Install packages
-```{r}
+```{r message=FALSE}
 library(tibble)
 library(simulateGP)
 library(dplyr)
+library(TwoSampleMR)
 ```
 
 Simulation 1

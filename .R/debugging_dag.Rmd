@@ -12,119 +12,99 @@ library(TwoSampleMR)
 ```
 
 ```{r}
-dgmodel <- function(nid, #3301 for protein and 30686 for GWAS
-  h2_known, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  h2_unknown, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
-  rsq_lr0, 
-  b_c0l, 
-  gc_maf,
-  gr_maf, 
+dgmodel <- function(nid, #making large sample size so enough individuals for case control analysis
+  h2_known, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  h2_unknown, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  d_prev, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
+  gr_maf, #need to estimate this allele frequency
   rsq_gr0,   
-  rsq_gc0,   
+  rsq_gc0, 
+  rsq_lr0,
   b_u1r1, 
   b_u1l, 
   b_u2c1, 
   b_u2l, 
-  b_dr1, 
-  b_dc1, 
+  b_dr1, #non causal marker increases beta 1 in disease
+  b_dc1, #causal marker increases beta 1 in disease
   b_c0c1, 
   b_r0r1, 
   b_u2c0, 
-  b_gcc0, 
-  b_lc0, 
   b_u1r0, 
   b_u1d, 
   b_u2d, 
-  b_gcc1,
-  var_l, 
-  vp)  #assuming variance of genetic liability is 1
+  b_gcc1, #set to this as beta of c0 is this 
+  var_l, #estimated variance of liability to be 1
+  vp, nsnp)  #assuming variance of genetic liability is 1
 {
-  u1 <- rnorm(nid) #normal distribution of unmeasured confounder
-  u2 <- rnorm(nid) #normal distribution of unmeasured confounder
+  u1 <- rnorm(nid) 
+  u2 <- rnorm(nid) 
 gwashits <- tribble(
     ~beta, ~af,
     0.26, 0.54
 )
- gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) #creating genotype matrix for causal variant based on GWAS data 
+ gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) 
 
 rsq_gcl <- 2*gwashits$af*(1-gwashits$af) * gwashits$beta^2 / var_l
-#below we assume equal split of rsq to make gc -> l (route is gc ->c0 ->l)
+
 rsq_gcc0 <- sqrt(rsq_gcl)
 rsq_c0l <- sqrt(rsq_gcl)
-# rsq_gp = beta^2 var(g) / var(p)
+
 Var_c0 <- rep(1, nrow(gwashits))
  
-beta_gcc0 <- sqrt(rsq_gcl * Var_c0 / (2*gwashits$af*(1-gwashits$af)))
-beta_c0l <- sqrt(rsq_c0l * var_l / Var_c0)
+b_gcc0 <- sqrt(rsq_gcl * Var_c0 / (2*gwashits$af*(1-gwashits$af)))
+b_c0l <- sqrt(rsq_c0l * var_l / Var_c0)
 
-# gc -> c0
+
 c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
-#c0 -> l
-#for now assuming unmeasured confounder is one estimate for all GWAS hits
-l <- gc %*% gwashits$beta +u2*b_u2l #remove error element to liability as this is accounted for in the h2x estimate
 
-gr <- rbinom(nid, 2, gr_maf) #creating genotype matrix for non causal variant 
-  #to calculate c0 using known GWAS hits
-  # TODO need to fix this
-  rsq_prs <- h2_known - (0.1)^2 # add on the environmental aspect?
-  
-  #vp <- 1 #Vp <- rep(1, length(b_gl)) #don't think we need this as it combines SNP values rather than take them individually
-  prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) #check this as vp*h2 is rsq_prs, original code: sd=sqrt(vp*h2) h2 is rsq_prs currently as explains 0.06 of heritability and total heritability is 0.025
-  
-  #num_c0 <- length(gwashits$af) #number of gwas hits won't need
-  
-  # won't need to remove gwashits as PRS is total together prs_w <- scale(prs[,-num_c0] %*% b_gl[-num_c0]) #had to remove number of GWAS hits from prs
-  l <- prs * sqrt(rsq_prs) + l #combine PRS and liability from known GWAS hits 
-   
-  r0 <- scale(gr) * sqrt(rsq_gr0) + l * rsq_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) #  We are assuming variance is 1
+  rsq_prs <- h2_known - (0.1)^2
+prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) 
 
-  # generate probability of disease
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #translate disease risk from liability to probability scale would h2x be prs_w instead?
-  #change b_u1d to b_u1l and same with u2
-  
-  # generate random disease outcome
-  # switch this 0/1 or fix simualteGP function
-  d <- rbinom(nid, 1, prob_l) #case as 0 control is 1
-  ##can change to 1-prob_l to flip this removing next line
-  d <- abs(d-1) #this function flips case and control which makes case 1 and control 0
+l <- gc %*% gwashits$beta +prs * sqrt(rsq_prs) +u2*b_u2l 
+gr <- make_geno(nid, nsnp, gr_maf)
+l_for_r0 <- matrix(l,             
+               nrow = nrow(l),
+               ncol = ncol(gr))
+  r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+ 
+  d <- rbinom(nid, 1, prob_l) 
+  d <- abs(d-1) 
 
-  c1 <- scale(gc) * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2)) #we hypothesized one SNP down this route? We are assuming variance is 1
-    #response to disease state NEED TO ADD ALTERATION OF DISEASE STATE WHETHER THIS IS INCREASED OR DECREASED
-  
-  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-rsq_lr0^2-b_u1r1^2)) #We are assuming variance is 1
-#have left this for now but do we need to add element of change for non-causal markers in disease process
+  c1 <- gc * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2))
+  r1 <- gr * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-rsq_lr0^2-b_u1r1^2)) 
    phen <- tibble(
-    u1, u2, r0, r1, c0[,1], c1[,1], prs, l, prob_l, d
+    u1, u2, r0[,1], r1[,1], c0[,1], c1[,1], prs, l, prob_l, d
   )
-  return(list(geno=gc, phen=phen))} #check genotype would be Gc when it was G
+  return(list(geno_gc=gc,geno_gr=gr, phen=phen))} 
 
 dgmodel_check <- function(dat)
 {
   print(tibble(
     col = names(dat$phen),
-    vars = apply(dat$phen, 2, var), ##what does var do here, does it look for the variance between values? 2 means col sums and 1 is row sums
+    vars = apply(dat$phen, 2, var), 
     means = colMeans(dat$phen)
   ), n=25)
-  print(cor(dat$phen$prs, dat$phen$l)^2) #compare PRS to disease liability
+  print(cor(dat$phen$prs, dat$phen$l)^2)
 }
 dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
 {
   phen <- dat$phen
   res_all <- bind_rows( 
-    fast_assoc(y=phen$d, x=phen$prs) %>% as_tibble() %>% mutate(x="prs", y="d"), #fast_assoc simple linear regression for prs and disease outcome
+    fast_assoc(y=phen$d, x=phen$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
     fast_assoc(y=phen$`c0[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=phen$r0, x=phen$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=phen$`r0[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
     fast_assoc(y=phen$prs, x=phen$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=phen$prs, x=phen$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=phen$prs, x=phen$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
     fast_assoc(y=phen$`c1[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=phen$r1, x=phen$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=phen$`r1[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
     fast_assoc(y=phen$prs, x=phen$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=phen$prs, x=phen$r1) %>% as_tibble() %>% mutate(x="prs", y="r1")
+    fast_assoc(y=phen$prs, x=phen$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1")
   ) %>%
     mutate(study="all")
   
-  obs <- bind_rows(phen[phen$d == 0,][1:ncontrol,], phen[phen$d == 1,][1:ncase,]) ##this causes NA when cases doesn't have same number in individuals assessed in DGM
+  obs <- bind_rows(phen[phen$d == 0,][1:ncontrol,], phen[phen$d == 1,][1:ncase,])  
   case <- length(subset(obs$d, obs$d==1))
   paste("Number of cases: ", case) 
   control <- length(subset(obs$d, obs$d==0))
@@ -132,27 +112,27 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
   res_obs <- bind_rows(
     fast_assoc(y=obs$d, x=obs$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
     fast_assoc(y=obs$`c0[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=obs$r0, x=obs$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=obs$`r0[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
     fast_assoc(y=obs$prs, x=obs$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=obs$prs, x=obs$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=obs$prs, x=obs$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
     fast_assoc(y=obs$`c1[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=obs$r1, x=obs$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=obs$`r1[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
     fast_assoc(y=obs$prs, x=obs$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=obs$prs, x=obs$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+    fast_assoc(y=obs$prs, x=obs$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   )  %>%
     mutate(study="observational")
 
-  prot <- phen[phen$d==0,][1:protein_gwas, ] #add element of these individuals not having disease 
+  prot <- phen[phen$d==0,][1:protein_gwas, ] 
   res_protein <- bind_rows(
     fast_assoc(y=prot$d, x=prot$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
     fast_assoc(y=prot$`c0[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=prot$r0, x=prot$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=prot$`r0[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
     fast_assoc(y=prot$prs, x=prot$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=prot$prs, x=prot$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=prot$prs, x=prot$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
     fast_assoc(y=prot$`c1[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=prot$r1, x=prot$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=prot$`r1[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
     fast_assoc(y=prot$prs, x=prot$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=prot$prs, x=prot$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+    fast_assoc(y=prot$prs, x=prot$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   ) %>%
     mutate(study="protein_gwas")
   out_all <- paste0(rev_mr_result[row,]$prot, "_res_all.csv")
@@ -164,22 +144,22 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
   return(bind_rows(res_all, res_obs, res_protein))
 } 
 
-#reverse MR approach using prs to find non causal biomarkers
-#IVW and two-stage least squares (should be the same value)
+
 ivw_analysis <- function(dat){
   phen <- dat$phen
-  gen <- dat$geno
-mr_dat <- get_effs(phen$prs, phen$r0, gen) #might need to change this genetic matrix
+  gen_gr <- dat$geno_gr
+mr_dat <- get_effs(phen$prs, phen$`r1[, 1]`, gen_gr) #had to set r0[,1] so that it is pulling first column 
 print("Reverse MR")
-mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
-mr_dat <- get_effs(phen$`c1[, 1]`, phen$d, gen) #might need to change this genetic matrix
+mr(mr_dat, metho=c("mr_ivw")) %>% str()
+gen_gc <- dat$geno_gc
+mr_dat <- get_effs(phen$`c1[, 1]`, phen$d, gen_gc) 
 print("Forward MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
-# MR using fixed effects IVW [two-stage least squares method] use system fit package
+
 print("2SLS")
-summary(systemfit::systemfit(phen$prs ~ phen$r0, method="2SLS", inst = ~gen)) # 2SLS #might need to change this genetic matrix ##issue with this code as getting NAs
+summary(systemfit::systemfit(phen$prs ~ phen$r0, method="2SLS", inst = ~gen)) 
 print("Observational")
-summary(lm(phen$prs ~ phen$r0)) #confounded observational estimate
+summary(lm(phen$prs ~ phen$r0))
 }
 ```
 
@@ -190,34 +170,31 @@ rev_mr_result <- tribble(
 )
 
 for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=10000, #making large sample size so enough individuals for case control analysis
+dat <- dgmodel(nid=1000000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
   #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
-  b_c0l=0, 
-  gc_maf=0, #don't think this is needed anymore
   gr_maf=0.20, #need to estimate this allele frequency
   rsq_gr0=0,   
   rsq_gc0=0, 
-  rsq_lr0=0,
+  rsq_lr0=rev_mr_result$rsq_lr0,
   b_u1r1=0, 
   b_u1l=0, 
   b_u2c1=0, 
   b_u2l=0, 
-  b_dr1=0, 
-  b_dc1=0, 
+  b_dr1=1, #non causal marker increases beta 1 in disease
+  b_dc1=1, #causal marker increases beta 1 in disease
   b_c0c1=0, 
   b_r0r1=0, 
   b_u2c0=0, 
-  b_gcc0=1, 
-  b_lc0=0,
   b_u1r0=0, 
   b_u1d=0, 
   b_u2d=0, 
-  b_gcc1=0,
+  b_gcc1=0.13, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
-  vp=1) #estimated variance of protein to be 1
+  vp=1, 
+  nsnp=99) #estimated variance of protein to be 1
 
 dgmodel_check(dat)
 
@@ -225,3 +202,10 @@ dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_r
 ivw_analysis(dat)
 ```
 
+TO DO:
+Work out how to sort out r0\*b_r0_r1 would set to 0 but then liability is not involved in r1 and causes r1 to be less than r0 most of the time - only d\*b_dr1 should affect disease
+Removed scale from gc and gr - check this is okay with Gib
+changed b_gcc0 to beta of causal variant divided by 2, same for b_c0l
+Changed MR output for r0 to be r0[,1] need to check why this is the case
+No influence of liability in c1 in current DGM
+Need to work out how to subset gc/gr genotype matrix for case control to be able to run MR - need to count row numbers and subset this from the matrix
