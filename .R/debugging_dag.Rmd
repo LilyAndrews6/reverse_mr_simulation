@@ -33,6 +33,7 @@ dgmodel <- function(nid, #making large sample size so enough individuals for cas
   b_u1r0, 
   b_u1d, 
   b_u2d, 
+  b_gcc0,
   b_gcc1, #set to this as beta of c0 is this 
   var_l, #estimated variance of liability to be 1
   vp, nsnp)  #assuming variance of genetic liability is 1
@@ -45,20 +46,20 @@ gwashits <- tribble(
 )
  gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) 
 
-rsq_gcl <- 2*gwashits$af*(1-gwashits$af) * gwashits$beta^2 / var_l
+#rsq_gcl <- 2*gwashits$af*(1-gwashits$af) * gwashits$beta^2 / var_l
 
-rsq_gcc0 <- sqrt(rsq_gcl)
-rsq_c0l <- sqrt(rsq_gcl)
+#rsq_gcc0 <- sqrt(rsq_gcl)
+#rsq_c0l <- sqrt(rsq_gcl)
 
-Var_c0 <- rep(1, nrow(gwashits))
+#Var_c0 <- rep(1, nrow(gwashits))
  
-b_gcc0 <- sqrt(rsq_gcl * Var_c0 / (2*gwashits$af*(1-gwashits$af)))
-b_c0l <- sqrt(rsq_c0l * var_l / Var_c0)
+#b_gcc0 <- sqrt(rsq_gcl * Var_c0 / (2*gwashits$af*(1-gwashits$af)))
+#b_c0l <- sqrt(rsq_c0l * var_l / Var_c0)
 
 
 c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
 
-  rsq_prs <- h2_known - (0.1)^2
+rsq_prs <- h2_known - (0.1)^2
 prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) 
 
 l <- gc %*% gwashits$beta +prs * sqrt(rsq_prs) +u2*b_u2l 
@@ -72,8 +73,8 @@ l_for_r0 <- matrix(l,
   d <- rbinom(nid, 1, prob_l) 
   d <- abs(d-1) 
 
-  c1 <- gc * b_gcc1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(b_gcc1)^2 - b_u2c1^2- b_c0c1^2))
-  r1 <- gr * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-rsq_lr0^2-b_u1r1^2)) 
+  c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
+  r1 <-  r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-b_r0r1^2-b_u1r1^2)) 
    phen <- tibble(
     u1, u2, r0[,1], r1[,1], c0[,1], c1[,1], prs, l, prob_l, d
   )
@@ -161,6 +162,25 @@ summary(systemfit::systemfit(phen$prs ~ phen$r0, method="2SLS", inst = ~gen))
 print("Observational")
 summary(lm(phen$prs ~ phen$r0))
 }
+##observational case control data
+ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
+genosubset <- dat$geno_gc[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
+print("Forward MR")
+mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
+
+##only cases
+ind <- dat$phen$d ==1
+genosubset <- dat$geno_gc[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+mr_dat <- get_effs(phenosubset$`c0[, 1]`, phenosubset$d, geno_mat) 
+print("Forward MR")
+mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 ```
 
 ```{r}
@@ -183,14 +203,15 @@ dat <- dgmodel(nid=1000000, #making large sample size so enough individuals for 
   b_u1l=0, 
   b_u2c1=0, 
   b_u2l=0, 
-  b_dr1=1, #non causal marker increases beta 1 in disease
+  b_dr1=0, #non causal marker stays the same in disease
   b_dc1=1, #causal marker increases beta 1 in disease
-  b_c0c1=0, 
-  b_r0r1=0, 
+  b_c0c1=1, 
+  b_r0r1=1, 
   b_u2c0=0, 
   b_u1r0=0, 
   b_u1d=0, 
   b_u2d=0, 
+  b_gcc0=0.13,
   b_gcc1=0.13, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
   vp=1, 
@@ -202,10 +223,48 @@ dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_r
 ivw_analysis(dat)
 ```
 
+
+This takes equal case and control numbers - c1 and d
+```{r}
+ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
+genosubset <- dat$geno_gc[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
+print("Forward MR")
+mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
+```
+With no unmeasured confounders:
+
+[1] "Forward MR"
+Analysing 'X' on 'Y'
+'data.frame':	1 obs. of  9 variables:
+ $ id.exposure: chr "X"
+ $ id.outcome : chr "Y"
+ $ outcome    : chr "Y"
+ $ exposure   : chr "X"
+ $ method     : chr "Wald ratio"
+ $ nsnp       : num 1
+ $ b          : num 2.43
+ $ se         : num 0.0365
+ $ pval       : num 0
+ 
+ 
+ This takes equal case and control numbers - r0 and d
+```{r}
+ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
+genosubset <- dat$geno_gr[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+mr_dat <- get_effs(phenosubset$`r0[, 1]`, phenosubset$d, geno_mat)
+print("Reverse MR")
+mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
+```
+
+
+
 TO DO:
-Work out how to sort out r0\*b_r0_r1 would set to 0 but then liability is not involved in r1 and causes r1 to be less than r0 most of the time - only d\*b_dr1 should affect disease
-Removed scale from gc and gr - check this is okay with Gib
-changed b_gcc0 to beta of causal variant divided by 2, same for b_c0l
-Changed MR output for r0 to be r0[,1] need to check why this is the case
-No influence of liability in c1 in current DGM
-Need to work out how to subset gc/gr genotype matrix for case control to be able to run MR - need to count row numbers and subset this from the matrix
+Forward MR not coming out with expected result - do we need more cases to make this better?
+Change DAG so gc doesn't go to c1 and same for r1
