@@ -34,7 +34,7 @@ dgmodel <- function(nid, #making large sample size so enough individuals for cas
   b_u1d, 
   b_u2d, 
   b_gcc0,
-  b_gcc1, #set to this as beta of c0 is this 
+  b_gc0l,#set to this as beta of c0 is this 
   var_l, #estimated variance of liability to be 1
   vp, nsnp)  #assuming variance of genetic liability is 1
 {
@@ -62,15 +62,17 @@ c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
 rsq_prs <- h2_known - (0.1)^2
 prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) 
 
-l <- gc %*% gwashits$beta +prs * sqrt(rsq_prs) +u2*b_u2l 
+#l <- gc %*% gwashits$beta +prs * sqrt(rsq_prs) +u2*b_u2l  ##could this be the issue of sqrt of rsq_prs as beta not 
+#same as r due to variance
+l <- c0*b_gc0l +prs*sqrt(rsq_prs)+u2*b_u2l
 gr <- make_geno(nid, nsnp, gr_maf)
 l_for_r0 <- matrix(l,             
                nrow = nrow(l),
                ncol = ncol(gr))
   r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
  
-  d <- rbinom(nid, 1, prob_l) 
+  d <- rbinom(nid, 1, prob_l) ##is the issue here where we flip meaning of d
   d <- abs(d-1) 
 
   c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
@@ -149,7 +151,7 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
 ivw_analysis <- function(dat){
   phen <- dat$phen
   gen_gr <- dat$geno_gr
-mr_dat <- get_effs(phen$prs, phen$`r1[, 1]`, gen_gr) #had to set r0[,1] so that it is pulling first column 
+mr_dat <- get_effs(phen$prs, phen$`r0[, 1]`, gen_gr) #had to set r0[,1] so that it is pulling first column 
 print("Reverse MR")
 mr(mr_dat, metho=c("mr_ivw")) %>% str()
 gen_gc <- dat$geno_gc
@@ -168,7 +170,7 @@ genosubset <- dat$geno_gc[ind, ]
 geno_mat <- data.matrix(genosubset)
 phenosubset <- dat$phen[ind, ]
 stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
+mr_dat <- get_effs(phenosubset$d, phenosubset$`c1[, 1]`, geno_mat)
 print("Forward MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 
@@ -178,7 +180,7 @@ genosubset <- dat$geno_gc[ind, ]
 geno_mat <- data.matrix(genosubset)
 phenosubset <- dat$phen[ind, ]
 stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$`c0[, 1]`, phenosubset$d, geno_mat) 
+mr_dat <- get_effs(phenosubset$`c0[, 1]`, phenosubset$`c1[, 1]`, geno_mat) 
 print("Forward MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 ```
@@ -190,7 +192,7 @@ rev_mr_result <- tribble(
 )
 
 for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=1000000, #making large sample size so enough individuals for case control analysis
+dat <- dgmodel(nid=1000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
@@ -212,7 +214,7 @@ dat <- dgmodel(nid=1000000, #making large sample size so enough individuals for 
   b_u1d=0, 
   b_u2d=0, 
   b_gcc0=0.13,
-  b_gcc1=0.13, #set to this as beta of c0 is this 
+  b_gc0l=0.13, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
   vp=1, 
   nsnp=99) #estimated variance of protein to be 1
@@ -262,7 +264,7 @@ mr_dat <- get_effs(phenosubset$`r0[, 1]`, phenosubset$d, geno_mat)
 print("Reverse MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 ```
-
+For some reason when we look at reverse MR between r0 and disease this come as a negative effect
 
 
 TO DO:
