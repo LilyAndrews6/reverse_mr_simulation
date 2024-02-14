@@ -4,7 +4,7 @@ output: github_document
 date: "2024-01-31"
 ---
 Install packages
-```{r}
+```{r warning=FALSE}
 library(tibble)
 library(simulateGP)
 library(dplyr)
@@ -12,6 +12,11 @@ library(TwoSampleMR)
 ```
 
 ```{r}
+gx_to_gp <- function(gx, h2x, prev){
+  x_prime <- qnorm(prev, 0, 1)
+  p <- pnorm(x_prime, mean=-gx, sd=sqrt(1-h2x), lower.tail = TRUE)
+  return(p)
+}
 dgmodel <- function(nid, #making large sample size so enough individuals for case control analysis
   h2_known, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
@@ -46,34 +51,21 @@ gwashits <- tribble(
 )
  gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) 
 
-#rsq_gcl <- 2*gwashits$af*(1-gwashits$af) * gwashits$beta^2 / var_l
-
-#rsq_gcc0 <- sqrt(rsq_gcl)
-#rsq_c0l <- sqrt(rsq_gcl)
-
-#Var_c0 <- rep(1, nrow(gwashits))
- 
-#b_gcc0 <- sqrt(rsq_gcl * Var_c0 / (2*gwashits$af*(1-gwashits$af)))
-#b_c0l <- sqrt(rsq_c0l * var_l / Var_c0)
-
 
 c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
 
 rsq_prs <- h2_known - (0.1)^2
 prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) 
 
-#l <- gc %*% gwashits$beta +prs * sqrt(rsq_prs) +u2*b_u2l  ##could this be the issue of sqrt of rsq_prs as beta not 
-#same as r due to variance
 l <- c0*b_gc0l +prs*sqrt(rsq_prs)+u2*b_u2l
 gr <- make_geno(nid, nsnp, gr_maf)
 l_for_r0 <- matrix(l,             
                nrow = nrow(l),
                ncol = ncol(gr))
   r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+  prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
  
-  d <- rbinom(nid, 1, prob_l) ##is the issue here where we flip meaning of d
-  d <- abs(d-1) 
+  d <- rbinom(nid, 1, prob_l) 
 
   c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
   r1 <-  r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-b_r0r1^2-b_u1r1^2)) 
@@ -164,25 +156,6 @@ summary(systemfit::systemfit(phen$prs ~ phen$r0, method="2SLS", inst = ~gen))
 print("Observational")
 summary(lm(phen$prs ~ phen$r0))
 }
-##observational case control data
-ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
-genosubset <- dat$geno_gc[ind, ]
-geno_mat <- data.matrix(genosubset)
-phenosubset <- dat$phen[ind, ]
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$d, phenosubset$`c1[, 1]`, geno_mat)
-print("Forward MR")
-mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
-
-##only cases
-ind <- dat$phen$d ==1
-genosubset <- dat$geno_gc[ind, ]
-geno_mat <- data.matrix(genosubset)
-phenosubset <- dat$phen[ind, ]
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$`c0[, 1]`, phenosubset$`c1[, 1]`, geno_mat) 
-print("Forward MR")
-mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 ```
 
 ```{r}
@@ -192,7 +165,7 @@ rev_mr_result <- tribble(
 )
 
 for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=1000, #making large sample size so enough individuals for case control analysis
+dat <- dgmodel(nid=100000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
@@ -225,9 +198,18 @@ dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_r
 ivw_analysis(dat)
 ```
 
-
-This takes equal case and control numbers - c1 and d
+Plot associations between variables in disease and non disease state
 ```{r}
+new_obs <- bind_rows(phen[phen$d == 0,][1:100,], phen[phen$d == 1,][1:100,])
+obs_dis <- subset(new_obs, new_obs$d ==1)
+obs_nodis <- subset(new_obs, new_obs$d ==0)
+plot(obs_nodis, col="black")
+plot(obs_dis, col="red")
+```
+
+Case control MR
+```{r}
+##Forward MR
 ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
 genosubset <- dat$geno_gc[ind, ]
 geno_mat <- data.matrix(genosubset)
@@ -236,26 +218,8 @@ stopifnot(nrow(genosubset) == nrow(phenosubset))
 mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
 print("Forward MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
-```
-With no unmeasured confounders:
 
-[1] "Forward MR"
-Analysing 'X' on 'Y'
-'data.frame':	1 obs. of  9 variables:
- $ id.exposure: chr "X"
- $ id.outcome : chr "Y"
- $ outcome    : chr "Y"
- $ exposure   : chr "X"
- $ method     : chr "Wald ratio"
- $ nsnp       : num 1
- $ b          : num 2.43
- $ se         : num 0.0365
- $ pval       : num 0
- 
- 
- This takes equal case and control numbers - r0 and d
-```{r}
-ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
+#Reverse MR
 genosubset <- dat$geno_gr[ind, ]
 geno_mat <- data.matrix(genosubset)
 phenosubset <- dat$phen[ind, ]
@@ -264,9 +228,86 @@ mr_dat <- get_effs(phenosubset$`r0[, 1]`, phenosubset$d, geno_mat)
 print("Reverse MR")
 mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
 ```
-For some reason when we look at reverse MR between r0 and disease this come as a negative effect
+ 
 
 
 TO DO:
-Forward MR not coming out with expected result - do we need more cases to make this better?
-Change DAG so gc doesn't go to c1 and same for r1
+- Run scenarios
+- Is reverse MR more or less sensitive to disease than case control/prospective studies
+- To do reverse MR with protein data - use SNP exposure from one population for exposure estimate and then get SNP outcome estimate from other population
+- Look at sensitivity and specificity to predict non causal proteins - area under curve 
+What condition is revMR better than case/control or prospective
+
+
+Creating protein dataset like INTERVAL cohort to look at r0
+```{r}
+phen <- dat$phen
+gen_gr <- dat$geno_gr
+prot <- phen[phen$d==0,][1:protein_gwas, ] #first 3301
+ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+genosubset <- dat$geno_gr[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+
+# cov(x,y)/var(y) beta hat estimate
+x <- phenosubset$`r0[, 1]`
+g <- geno_mat
+#beta.exposure <- function(y, g){
+#vg <- var(g[,i])
+#bhat <- stats::cov(y, g[,i]) / vg
+#return(bhat)
+#}
+gwas_dat <- data.frame()
+for (i in 1:ncol(g)){
+gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
+}
+exp_dat <- dplyr::tibble(
+  SNP= 1:ncol(g),#sort this 
+  exposure= "X",
+  id.exposure= "X",
+  beta.exposure=gwas_dat$bhat,
+  se.exposure=gwas_dat$se,
+  pval.exposure=gwas_dat$pval,
+  samplesize.exposure=gwas_dat$n,
+  units.exposure="SD",
+  rsq.exposure=gwas_dat$fval/(gwas_dat$fval+gwas_dat$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+)
+```
+
+Create GWAS dataset - must be different population to protein
+```{r}
+no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+no_prot_gc <- data.matrix(dat$geno_gc[!ind,])
+obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+phenosubset <- no_prot_phen[ind_obs, ]
+genosubset <- no_prot_gc[ind_obs, ]
+geno_mat <- data.matrix(genosubset)
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+y <- phenosubset$d
+g <- geno_mat
+gwas_dat <- data.frame()
+for (i in 1:ncol(g)){
+gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
+}
+out_dat <- dplyr::tibble(
+  SNP= 1:ncol(g),#sort this 
+  outcome= "Y",
+  id.outcome= "Y",
+  beta.outcome=gwas_dat$bhat,
+  se.outcome=gwas_dat$se,
+  pval.outcome=gwas_dat$pval,
+  samplesize.outcome=gwas_dat$n,
+  units.outcome="SD",
+  rsq.outcome=gwas_dat$fval/(gwas_dat$fval+gwas_dat$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+)
+```
+
+Reverse MR:
+```{r}
+harmonise <- merge(exp_dat, out_dat, by="SNP")
+harmonise$mr_keep <- TRUE
+mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
+```
+
