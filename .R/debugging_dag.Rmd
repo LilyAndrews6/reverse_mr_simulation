@@ -4,7 +4,7 @@ output: github_document
 date: "2024-01-31"
 ---
 Install packages
-```{r warning=FALSE}
+```{r message=FALSE, warning=FALSE}
 library(tibble)
 library(simulateGP)
 library(dplyr)
@@ -136,7 +136,9 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
   write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
   out_protein <- paste0(rev_mr_result[row,]$prot, "_res_protein.csv")
   write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
-  return(bind_rows(res_all, res_obs, res_protein))
+  return(bind_rows(obs%>%
+    mutate(study="observational"), prot%>%
+    mutate(study="protein_gwas")))
 } 
 
 
@@ -160,10 +162,15 @@ summary(lm(phen$prs ~ phen$r0))
 
 ```{r}
 rev_mr_result <- tribble(
-  ~beta, ~prot, ~rsq_lr0,
- 0.0880, "HMGCS1", 0.2040
+  ~beta, ~prot, ~rsq_lr0, ~se,
+ 0.0880, "HMGCS1", 0.2040, 0.0210,
+ 0.0832, "ATAD2", 0.1824, 0.0204,
+ 0.0829, "BMPER", 0.1811, 0.0204,
+ 0.0827, "IL5", 0.1802, 0.0204,
+ 0.0827, "IL23R", 0.1802, 0.0204,
 )
-
+rev_mr_comb <- data.frame()
+fwd_mr_comb <- data.frame()
 for(row in 1:nrow(rev_mr_result)){
 dat <- dgmodel(nid=100000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
@@ -173,7 +180,7 @@ dat <- dgmodel(nid=100000, #making large sample size so enough individuals for c
   gr_maf=0.20, #need to estimate this allele frequency
   rsq_gr0=0,   
   rsq_gc0=0, 
-  rsq_lr0=rev_mr_result$rsq_lr0,
+  rsq_lr0=rev_mr_result[row,]$rsq_lr0,
   b_u1r1=0, 
   b_u1l=0, 
   b_u2c1=0, 
@@ -194,8 +201,17 @@ dat <- dgmodel(nid=100000, #making large sample size so enough individuals for c
 
 dgmodel_check(dat)
 
-dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)}
-ivw_analysis(dat)
+studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)
+
+rev <- rev_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+rev_mr_comb <- rbind(rev_mr_comb, rev)
+obs <- subset(studies, studies$study == "observational")
+obs <- obs[, -11] #obs without identifier
+fwd <- fwd_mr_cc(dat, obs)
+fwd_mr_comb <- rbind(fwd_mr_comb, fwd)
+}
+#ivw_analysis(dat)
+
 ```
 
 Plot associations between variables in disease and non disease state
@@ -209,16 +225,6 @@ plot(obs_dis, col="red")
 
 Case control MR
 ```{r}
-##Forward MR
-ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
-genosubset <- dat$geno_gc[ind, ]
-geno_mat <- data.matrix(genosubset)
-phenosubset <- dat$phen[ind, ]
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
-print("Forward MR")
-mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
-
 #Reverse MR
 genosubset <- dat$geno_gr[ind, ]
 geno_mat <- data.matrix(genosubset)
@@ -237,46 +243,41 @@ TO DO:
 - To do reverse MR with protein data - use SNP exposure from one population for exposure estimate and then get SNP outcome estimate from other population
 - Look at sensitivity and specificity to predict non causal proteins - area under curve 
 What condition is revMR better than case/control or prospective
+- Lose SNPs in gr0 compared to gc0 - protein have 99 and disease has only 1
 
-
-Creating protein dataset like INTERVAL cohort to look at r0
+Create function to take R0 data from protein cohort and d variable from GWAS data from different subset of population and perform reverse MR
 ```{r}
+rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
 phen <- dat$phen
 gen_gr <- dat$geno_gr
-prot <- phen[phen$d==0,][1:protein_gwas, ] #first 3301
+prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
 ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
 genosubset <- dat$geno_gr[ind, ]
 geno_mat <- data.matrix(genosubset)
 phenosubset <- dat$phen[ind, ]
 stopifnot(nrow(genosubset) == nrow(phenosubset))
-
-# cov(x,y)/var(y) beta hat estimate
 x <- phenosubset$`r0[, 1]`
 g <- geno_mat
-#beta.exposure <- function(y, g){
-#vg <- var(g[,i])
-#bhat <- stats::cov(y, g[,i]) / vg
-#return(bhat)
-#}
 gwas_dat <- data.frame()
 for (i in 1:ncol(g)){
 gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
 }
-exp_dat <- dplyr::tibble(
-  SNP= 1:ncol(g),#sort this 
+exp_dat <- data.frame()
+for (x in 1:nrow(gwas_dat)){
+  prot_dat <- dplyr::tibble(
+  SNP= x, 
   exposure= "X",
   id.exposure= "X",
-  beta.exposure=gwas_dat$bhat,
-  se.exposure=gwas_dat$se,
-  pval.exposure=gwas_dat$pval,
-  samplesize.exposure=gwas_dat$n,
+  beta.exposure=gwas_dat[x,]$bhat,
+  se.exposure=gwas_dat[x,]$se,
+  pval.exposure=gwas_dat[x,]$pval,
+  samplesize.exposure=gwas_dat[x,]$n,
   units.exposure="SD",
-  rsq.exposure=gwas_dat$fval/(gwas_dat$fval+gwas_dat$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+  rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
 )
-```
+exp_dat<- rbind(exp_dat, prot_dat)
+}
 
-Create GWAS dataset - must be different population to protein
-```{r}
 no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
 no_prot_gc <- data.matrix(dat$geno_gc[!ind,])
 obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
@@ -292,7 +293,7 @@ for (i in 1:ncol(g)){
 gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
 }
 out_dat <- dplyr::tibble(
-  SNP= 1:ncol(g),#sort this 
+  SNP= 1:nrow(gwas_dat),#sort this 
   outcome= "Y",
   id.outcome= "Y",
   beta.outcome=gwas_dat$bhat,
@@ -302,12 +303,51 @@ out_dat <- dplyr::tibble(
   units.outcome="SD",
   rsq.outcome=gwas_dat$fval/(gwas_dat$fval+gwas_dat$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
 )
-```
-
-Reverse MR:
-```{r}
 harmonise <- merge(exp_dat, out_dat, by="SNP")
 harmonise$mr_keep <- TRUE
-mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio")) %>% str()
+mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+return(mr_res)}
+
+```
+
+Case control forward MR
+```{r}
+##Forward MR
+fwd_mr_cc <- function(dat, obs){
+ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
+genosubset <- dat$geno_gc[ind, ]
+geno_mat <- data.matrix(genosubset)
+phenosubset <- dat$phen[ind, ]
+stopifnot(nrow(genosubset) == nrow(phenosubset))
+mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
+print("Forward MR")
+mr_res <- mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio"))
+return(mr_res)}
+```
+
+observational and all information on r0
+```{r}
+non_causal_obs <- data.frame()
+for (prot in rev_mr_result$prot){
+  file <- read.csv(paste0(prot, "_res_obs.csv"))
+  non_casual <- subset(file, file$x=="r0" & file$y=="d")
+  non_causal_obs <- rbind(non_causal_obs, non_casual%>%
+    mutate(protein=prot))
+}
+
+non_causal_all <- data.frame()
+for (prot in rev_mr_result$prot){
+  file <- read.csv(paste0(prot, "_res_all.csv"))
+  non_casual <- subset(file, file$x=="r0" & file$y=="d")
+  non_causal_all <- rbind(non_causal_all, non_casual %>%
+    mutate(protein=prot))
+}
+```
+
+
+
+Sensitivity and specificity
+```{r}
+
 ```
 
