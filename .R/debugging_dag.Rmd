@@ -9,6 +9,8 @@ library(tibble)
 library(simulateGP)
 library(dplyr)
 library(TwoSampleMR)
+library(parallel)
+library(data.table)
 ```
 
 ```{r}
@@ -62,17 +64,19 @@ gr <- make_geno(nid, nsnp, gr_maf)
 l_for_r0 <- matrix(l,             
                nrow = nrow(l),
                ncol = ncol(gr))
-  r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
+r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
   prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
  
-  d <- rbinom(nid, 1, prob_l) 
+d <- rbinom(nid, 1, prob_l) 
 
-  c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
-  r1 <-  r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-b_r0r1^2-b_u1r1^2)) 
+c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
+r1 <-  r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-b_r0r1^2-b_u1r1^2)) 
+
+join_mat <- cbind(gr, gc)
    phen <- tibble(
     u1, u2, r0[,1], r1[,1], c0[,1], c1[,1], prs, l, prob_l, d
   )
-  return(list(geno_gc=gc,geno_gr=gr, phen=phen))} 
+  return(list(geno_gc=gc,geno_gr=gr, phen=phen, geno_join=join_mat))} 
 
 dgmodel_check <- function(dat)
 {
@@ -130,12 +134,12 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
     fast_assoc(y=prot$prs, x=prot$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   ) %>%
     mutate(study="protein_gwas")
-  out_all <- paste0(rev_mr_result[row,]$prot, "_res_all.csv")
-  write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
-  out_obs <- paste0(rev_mr_result[row,]$prot, "_res_obs.csv")
-  write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
-  out_protein <- paste0(rev_mr_result[row,]$prot, "_res_protein.csv")
-  write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
+  #out_all <- paste0(rev_mr_result[row,]$prot, "_res_all.csv")
+  #write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
+  #out_obs <- paste0(rev_mr_result[row,]$prot, "_res_obs.csv")
+  #write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
+  #out_protein <- paste0(rev_mr_result[row,]$prot, "_res_protein.csv")
+  #write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
   return(bind_rows(obs%>%
     mutate(study="observational"), prot%>%
     mutate(study="protein_gwas")))
@@ -160,18 +164,158 @@ summary(lm(phen$prs ~ phen$r0))
 }
 ```
 
+Reverse MR
+```{r}
+rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  #gen <- dat$geno_join
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_join[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$`c0[, 1]`
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  for (i in 1:ncol(g)){
+    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
+  }
+  out_dat <- data.frame()
+  for (y in 1:nrow(gwas_dat)){
+    prot_dat <- dplyr::tibble(
+      SNP= y, 
+      outcome= "Y",
+      id.outcome= "Y",
+      beta.outcome=gwas_dat[y,]$bhat,
+      se.outcome=gwas_dat[y,]$se,
+      pval.outcome=gwas_dat[y,]$pval,
+      samplesize.outcome=gwas_dat[y,]$n,
+      units.outcome="SD",
+      rsq.outcome=gwas_dat[y,]$fval/(gwas_dat[y,]$fval+gwas_dat[y,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+    )
+    out_dat<- rbind(out_dat, prot_dat)
+  }
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_join[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$prs
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  for (i in 1:ncol(g)){
+    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
+  }
+  exp_dat <- data.frame()
+  for (x in 1:nrow(gwas_dat)){
+    cc_dat <- dplyr::tibble(
+      SNP= x,#sort this 
+      exposure= "X",
+      id.exposure= "X",
+      beta.exposure=gwas_dat[x,]$bhat,
+      se.exposure=gwas_dat[x,]$se,
+      pval.exposure=gwas_dat[x,]$pval,
+      samplesize.exposure=gwas_dat[x,]$n,
+      units.exposure="SD",
+      rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+    )
+    exp_dat<- rbind(exp_dat, cc_dat)
+  }
+  harmonise <- merge(exp_dat, out_dat, by="SNP")
+  harmonise$mr_keep <- TRUE
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<0.05)#select SNPs reaching threshold
+  print(prs_snp)
+  mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(mr_res)}
+```
+
+FORWARD MR
+```{r}
+fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  #gen <- dat$geno_join
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_join[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$`c0[, 1]`
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  for (i in 1:ncol(g)){
+    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
+  }
+  exp_dat <- data.frame()
+  for (x in 1:nrow(gwas_dat)){
+    prot_dat <- dplyr::tibble(
+      SNP=x, 
+      exposure= "X",
+      id.exposure= "X",
+      beta.exposure=gwas_dat[x,]$bhat,
+      se.exposure=gwas_dat[x,]$se,
+      pval.exposure=gwas_dat[x,]$pval,
+      samplesize.exposure=gwas_dat[x,]$n,
+      units.exposure="SD",
+      rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+    )
+    exp_dat<- rbind(exp_dat, prot_dat)
+  }
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_join[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$`c1[, 1]`
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  for (i in 1:ncol(g)){
+    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
+  }
+ out_dat <- data.frame()
+  for (y in 1:nrow(gwas_dat)){
+    cc_dat <- dplyr::tibble(
+      SNP= y, 
+      outcome= "Y",
+      id.outcome= "Y",
+      beta.outcome=gwas_dat[y,]$bhat,
+      se.outcome=gwas_dat[y,]$se,
+      pval.outcome=gwas_dat[y,]$pval,
+      samplesize.outcome=gwas_dat[y,]$n,
+      units.outcome="SD",
+      rsq.outcome=gwas_dat[y,]$fval/(gwas_dat[y,]$fval+gwas_dat[y,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
+    )
+    out_dat<- rbind(out_dat, cc_dat)
+  }
+  harmonise <- merge(exp_dat, out_dat, by="SNP")
+  harmonise$mr_keep <- TRUE
+  c_snp <- harmonise[100,] #select simulated causal SNP
+  mr_res <- mr(c_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(mr_res)}
+```
+
 ```{r}
 rev_mr_result <- tribble(
   ~beta, ~prot, ~rsq_lr0, ~se,
  0.0880, "HMGCS1", 0.2040, 0.0210,
- 0.0832, "ATAD2", 0.1824, 0.0204,
- 0.0829, "BMPER", 0.1811, 0.0204,
- 0.0827, "IL5", 0.1802, 0.0204,
- 0.0827, "IL23R", 0.1802, 0.0204,
+ #0.0832, "ATAD2", 0.1824, 0.0204,
+ #0.0829, "BMPER", 0.1811, 0.0204,
+ #0.0827, "IL5", 0.1802, 0.0204,
+ #0.0827, "IL23R", 0.1802, 0.0204,
 )
-rev_mr_comb <- data.frame()
-fwd_mr_comb <- data.frame()
-for(row in 1:nrow(rev_mr_result)){
+reps <- 10
+res_table <- data.table()
+sims <- mclapply(1:reps, function(i){
+  for(row in 1:nrow(rev_mr_result)){
 dat <- dgmodel(nid=100000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
@@ -204,14 +348,37 @@ dgmodel_check(dat)
 studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)
 
 rev <- rev_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
-rev_mr_comb <- rbind(rev_mr_comb, rev)
-obs <- subset(studies, studies$study == "observational")
-obs <- obs[, -11] #obs without identifier
-fwd <- fwd_mr_cc(dat, obs)
-fwd_mr_comb <- rbind(fwd_mr_comb, fwd)
-}
-#ivw_analysis(dat)
+rev$mr <- "rev"
+fwd <- fwd_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+fwd$mr <- "fwd"
+f_r <- rbind(fwd, rev)
+res_table <- rbind(res_table, f_r)
+return(res_table)
+}}) 
+```
+Analysis
+```{r}
+all_res <- rbindlist(sims)
+fwd_mr_res <- subset(all_res, all_res$mr=="fwd")
+rev_mr_res <- subset(all_res, all_res$mr=="rev")
+#plot <- fwd_mr_res[,c(7,8)]
+#pairs(plot, panel=function(x,y){
+#  points(x,y)
+#  abline(lm(y~x), col="red")})
 
+var_mean_fwd <-  bind_rows(
+    vars = var(fwd_mr_res$b), 
+    means = mean(fwd_mr_res$b),
+    type="fwd")
+var_mean_rev <-  bind_rows(
+    vars = var(rev_mr_res$b), 
+    means = mean(rev_mr_res$b),
+    type="rev")
+total <- rbind(var_mean_fwd, var_mean_rev)
+hist(fwd_mr_res$b)
+points(x=1,y=1, col="red", pch=15)
+hist(rev_mr_res$b)
+points(x=0.08,y=1, col="red", pch=15)
 ```
 
 Plot associations between variables in disease and non disease state
@@ -246,84 +413,7 @@ What condition is revMR better than case/control or prospective
 - Lose SNPs in gr0 compared to gc0 - protein have 99 and disease has only 1
 
 Create function to take R0 data from protein cohort and d variable from GWAS data from different subset of population and perform reverse MR
-```{r}
-rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
-phen <- dat$phen
-gen_gr <- dat$geno_gr
-prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
-ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
-genosubset <- dat$geno_gr[ind, ]
-geno_mat <- data.matrix(genosubset)
-phenosubset <- dat$phen[ind, ]
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-x <- phenosubset$`r0[, 1]`
-g <- geno_mat
-gwas_dat <- data.frame()
-for (i in 1:ncol(g)){
-gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
-}
-exp_dat <- data.frame()
-for (x in 1:nrow(gwas_dat)){
-  prot_dat <- dplyr::tibble(
-  SNP= x, 
-  exposure= "X",
-  id.exposure= "X",
-  beta.exposure=gwas_dat[x,]$bhat,
-  se.exposure=gwas_dat[x,]$se,
-  pval.exposure=gwas_dat[x,]$pval,
-  samplesize.exposure=gwas_dat[x,]$n,
-  units.exposure="SD",
-  rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-)
-exp_dat<- rbind(exp_dat, prot_dat)
-}
 
-no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
-no_prot_gc <- data.matrix(dat$geno_gc[!ind,])
-obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
-ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
-phenosubset <- no_prot_phen[ind_obs, ]
-genosubset <- no_prot_gc[ind_obs, ]
-geno_mat <- data.matrix(genosubset)
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-y <- phenosubset$d
-g <- geno_mat
-gwas_dat <- data.frame()
-for (i in 1:ncol(g)){
-gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
-}
-out_dat <- dplyr::tibble(
-  SNP= 1:nrow(gwas_dat),#sort this 
-  outcome= "Y",
-  id.outcome= "Y",
-  beta.outcome=gwas_dat$bhat,
-  se.outcome=gwas_dat$se,
-  pval.outcome=gwas_dat$pval,
-  samplesize.outcome=gwas_dat$n,
-  units.outcome="SD",
-  rsq.outcome=gwas_dat$fval/(gwas_dat$fval+gwas_dat$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-)
-harmonise <- merge(exp_dat, out_dat, by="SNP")
-harmonise$mr_keep <- TRUE
-mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
-return(mr_res)}
-
-```
-
-Case control forward MR
-```{r}
-##Forward MR
-fwd_mr_cc <- function(dat, obs){
-ind <- do.call(paste0, dat$phen) %in% do.call(paste0, obs)
-genosubset <- dat$geno_gc[ind, ]
-geno_mat <- data.matrix(genosubset)
-phenosubset <- dat$phen[ind, ]
-stopifnot(nrow(genosubset) == nrow(phenosubset))
-mr_dat <- get_effs(phenosubset$`c1[, 1]`, phenosubset$d, geno_mat)
-print("Forward MR")
-mr_res <- mr(mr_dat, metho=c("mr_ivw", "mr_wald_ratio"))
-return(mr_res)}
-```
 
 observational and all information on r0
 ```{r}
@@ -344,10 +434,27 @@ for (prot in rev_mr_result$prot){
 }
 ```
 
+Obs vs expected:
+```{r}
+expected_vs_observed_replication <- function(b_disc, b_rep, se_disc, se_rep, alpha) { 
+  p_sign <- pnorm(-abs(b_disc) / se_disc) * pnorm(-abs(b_disc) / se_rep) + ((1 - pnorm(-abs(b_disc) / se_disc)) * (1 - pnorm(-abs(b_disc) / se_rep))) 
+  p_sig <- pnorm(-abs(b_disc) / se_rep + qnorm(alpha / 2)) + (1 - pnorm(-abs(b_disc) / se_rep - qnorm(alpha / 2)))
+  p_rep <- pnorm(abs(b_rep)/se_rep, lower.tail=FALSE) 
+  res <- tibble::tibble( 
+    nsnp=length(b_disc), 
+    metric=c("Sign", "Sign", "P-value", "P-value"), 
+    datum=c("Expected", "Observed", "Expected", "Observed"), 
+    value=c(sum(p_sign, na.rm=TRUE), sum(sign(b_disc) == sign(b_rep)), sum(p_sig, na.rm=TRUE), sum(p_rep < alpha, na.rm=TRUE)) 
+  ) 
+  return(list(res=res, variants=dplyr::tibble(sig=p_sig, sign=p_sign))) 
+} 
+expected_vs_observed_replication(rev_mr_result$beta, rev_mr_result$se, rev_mr_comb$b, rev_mr_comb$se, alpha = 0.05) 
+expected_vs_observed_replication(rev_mr_result$beta, rev_mr_result$se, non_causal_all$bhat, non_causal_all$se, alpha = 0.05)
+expected_vs_observed_replication(rev_mr_result$beta, rev_mr_result$se, non_causal_obs$bhat, non_causal_obs$se, alpha = 0.05)
+```
 
 
 Sensitivity and specificity
 ```{r}
 
 ```
-
