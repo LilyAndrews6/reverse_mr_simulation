@@ -65,7 +65,7 @@ l_for_r0 <- matrix(l,
                nrow = nrow(l),
                ncol = ncol(gr))
 r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
-  prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
+prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
  
 d <- rbinom(nid, 1, prob_l) 
 
@@ -205,14 +205,18 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  x <- phenosubset$prs
+  x <- phenosubset$`l` #change this to d and do logistic regression to check this as it's binary
   g <- geno_mat
-  gwas_dat <- data.frame()
-  for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
-  }
-  exp_dat <- data.frame()
-  for (x in 1:nrow(gwas_dat)){
+ # gwas_dat <- data.frame()
+#  for (i in 1:ncol(g)){
+#    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
+#  }
+gwas_dat <- data.frame()
+for (i in 1:ncol(g)){
+    gwas_dat <- rbind(gwas_dat, logistic_assoc(x,g[,i]))
+}
+exp_dat <- data.frame()
+for (x in 1:nrow(gwas_dat)){
     cc_dat <- dplyr::tibble(
       SNP= x,#sort this 
       exposure= "X",
@@ -228,10 +232,19 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   }
   harmonise <- merge(exp_dat, out_dat, by="SNP")
   harmonise$mr_keep <- TRUE
-  prs_snp <- subset(harmonise, harmonise$pval.exposure<0.05)#select SNPs reaching threshold
+  n_snp <- harmonise[1:99,]
+  prs_snp <- subset(n_snp, n_snp$pval.exposure<0.05)#select SNPs reaching threshold
   print(prs_snp)
-  mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-  return(mr_res)}
+  if (dim(prs_snp)[1]>0){
+   mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+   return(mr_res)
+  }else{
+    mr_res <- tribble(
+  ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, ~mr,
+ "NA", "NA", "NA", "NA","NA","NA", "NA", "NA", "NA","rev",
+)
+return(mr_res)
+  }}
 ```
 
 FORWARD MR
@@ -275,8 +288,11 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  y <- phenosubset$`c1[, 1]`
+  y <- phenosubset$`l` #change this to d and do logistic regression to check this as it's binary
   g <- geno_mat
+  
+  glm(y ~ g, family = binomial(link = "logit"), data)
+
   gwas_dat <- data.frame()
   for (i in 1:ncol(g)){
     gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
@@ -303,7 +319,7 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   return(mr_res)}
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE} 
 rev_mr_result <- tribble(
   ~beta, ~prot, ~rsq_lr0, ~se,
  0.0880, "HMGCS1", 0.2040, 0.0210,
@@ -313,13 +329,13 @@ rev_mr_result <- tribble(
  #0.0827, "IL23R", 0.1802, 0.0204,
 )
 reps <- 10
-res_table <- data.table()
+
 sims <- mclapply(1:reps, function(i){
   for(row in 1:nrow(rev_mr_result)){
 dat <- dgmodel(nid=100000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  d_prev=600/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
   #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
   gr_maf=0.20, #need to estimate this allele frequency
   rsq_gr0=0,   
@@ -351,9 +367,7 @@ rev <- rev_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
 rev$mr <- "rev"
 fwd <- fwd_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
 fwd$mr <- "fwd"
-f_r <- rbind(fwd, rev)
-res_table <- rbind(res_table, f_r)
-return(res_table)
+return(rbind(fwd, rev))
 }}) 
 ```
 Analysis
@@ -377,8 +391,10 @@ var_mean_rev <-  bind_rows(
 total <- rbind(var_mean_fwd, var_mean_rev)
 hist(fwd_mr_res$b)
 points(x=1,y=1, col="red", pch=15)
+boxplot(fwd_mr_res$b)
 hist(rev_mr_res$b)
 points(x=0.08,y=1, col="red", pch=15)
+boxplot(rev_mr_res$b)
 ```
 
 Plot associations between variables in disease and non disease state
