@@ -19,6 +19,18 @@ gx_to_gp <- function(gx, h2x, prev){
   p <- pnorm(x_prime, mean=-gx, sd=sqrt(1-h2x), lower.tail = TRUE)
   return(p)
 }
+logistic_assoc <- function(y, x)
+{
+	logistic_model <- summary(glm(y ~ x, family="binomial"))$coefficients
+	return(list(
+		ahat=logistic_model[1,1],
+		bhat=logistic_model[2,1],
+		se=logistic_model[2,2],
+		fval=logistic_model[2,3]^2,
+		pval=logistic_model[2,4],
+		n=length(y)
+	))
+}
 dgmodel <- function(nid, #making large sample size so enough individuals for case control analysis
   h2_known, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
@@ -43,7 +55,8 @@ dgmodel <- function(nid, #making large sample size so enough individuals for cas
   b_gcc0,
   b_gc0l,#set to this as beta of c0 is this 
   var_l, #estimated variance of liability to be 1
-  vp, nsnp)  #assuming variance of genetic liability is 1
+  vp, 
+  nsnp)  #assuming variance of genetic liability is 1
 {
   u1 <- rnorm(nid) 
   u2 <- rnorm(nid) 
@@ -87,7 +100,7 @@ dgmodel_check <- function(dat)
   ), n=25)
   print(cor(dat$phen$prs, dat$phen$l)^2)
 }
-dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
+dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result, row, iteration)
 {
   phen <- dat$phen
   res_all <- bind_rows( 
@@ -105,9 +118,11 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
   
   obs <- bind_rows(phen[phen$d == 0,][1:ncontrol,], phen[phen$d == 1,][1:ncase,])  
   case <- length(subset(obs$d, obs$d==1))
-  paste("Number of cases: ", case) 
+  print("Number of cases: ") 
+  print(case)
   control <- length(subset(obs$d, obs$d==0))
-  paste("Number of controls: ", control)
+  print("Number of controls: ")
+  print(control)
   res_obs <- bind_rows(
     fast_assoc(y=obs$d, x=obs$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
     fast_assoc(y=obs$`c0[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
@@ -134,17 +149,16 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result)
     fast_assoc(y=prot$prs, x=prot$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   ) %>%
     mutate(study="protein_gwas")
-  #out_all <- paste0(rev_mr_result[row,]$prot, "_res_all.csv")
-  #write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
-  #out_obs <- paste0(rev_mr_result[row,]$prot, "_res_obs.csv")
+  out_all <- paste0(rev_mr_result[row,]$prot, iteration, "_res_all.csv")
+ # write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
+  out_obs <- paste0(rev_mr_result[row,]$prot, iteration, "_res_obs.csv")
   #write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
-  #out_protein <- paste0(rev_mr_result[row,]$prot, "_res_protein.csv")
+  out_protein <- paste0(rev_mr_result[row,]$prot, iteration,"_res_protein.csv")
   #write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
   return(bind_rows(obs%>%
     mutate(study="observational"), prot%>%
     mutate(study="protein_gwas")))
 } 
-
 
 ivw_analysis <- function(dat){
   phen <- dat$phen
@@ -205,9 +219,9 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  x <- phenosubset$`l` #change this to d and do logistic regression to check this as it's binary
+  x <- phenosubset$`d` #change this to d and do logistic regression to check this as it's binary, l for fast assoc
   g <- geno_mat
- # gwas_dat <- data.frame()
+  #gwas_dat <- data.frame()
 #  for (i in 1:ncol(g)){
 #    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
 #  }
@@ -232,7 +246,7 @@ for (x in 1:nrow(gwas_dat)){
   }
   harmonise <- merge(exp_dat, out_dat, by="SNP")
   harmonise$mr_keep <- TRUE
-  n_snp <- harmonise[1:99,]
+  n_snp <- harmonise[1:1300,]
   prs_snp <- subset(n_snp, n_snp$pval.exposure<0.05)#select SNPs reaching threshold
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
@@ -241,7 +255,7 @@ for (x in 1:nrow(gwas_dat)){
   }else{
     mr_res <- tribble(
   ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, ~mr,
- "NA", "NA", "NA", "NA","NA","NA", "NA", "NA", "NA","rev",
+ " ", " ", " ", " "," "," ", " ", " ", " ","rev",
 )
 return(mr_res)
   }}
@@ -288,15 +302,15 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  y <- phenosubset$`l` #change this to d and do logistic regression to check this as it's binary
+  y <- phenosubset$`d` #change this to d and do logistic regression to check this as it's binary
   g <- geno_mat
-  
-  glm(y ~ g, family = binomial(link = "logit"), data)
-
-  gwas_dat <- data.frame()
+    gwas_dat <- data.frame()
   for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
-  }
+    gwas_dat <- rbind(gwas_dat, logistic_assoc(y,g[,i]))
+}
+ # for (i in 1:ncol(g)){
+#    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
+#  }
  out_dat <- data.frame()
   for (y in 1:nrow(gwas_dat)){
     cc_dat <- dplyr::tibble(
@@ -314,7 +328,7 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   }
   harmonise <- merge(exp_dat, out_dat, by="SNP")
   harmonise$mr_keep <- TRUE
-  c_snp <- harmonise[100,] #select simulated causal SNP
+  c_snp <- harmonise[1301,] #select simulated causal SNP
   mr_res <- mr(c_snp, metho=c("mr_ivw", "mr_wald_ratio"))
   return(mr_res)}
 ```
@@ -324,18 +338,17 @@ rev_mr_result <- tribble(
   ~beta, ~prot, ~rsq_lr0, ~se,
  0.0880, "HMGCS1", 0.2040, 0.0210,
  #0.0832, "ATAD2", 0.1824, 0.0204,
- #0.0829, "BMPER", 0.1811, 0.0204,
+ #0.0829, "BMPER", 0.1811, 0.0204, 
  #0.0827, "IL5", 0.1802, 0.0204,
  #0.0827, "IL23R", 0.1802, 0.0204,
 )
-reps <- 10
-
-sims <- mclapply(1:reps, function(i){
+reps <- 5
+sims <- mclapply(X=1:reps, function(i){
   for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=100000, #making large sample size so enough individuals for case control analysis
+dat <- dgmodel(nid=1010000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=600/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  d_prev=6/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
   #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
   gr_maf=0.20, #need to estimate this allele frequency
   rsq_gr0=0,   
@@ -356,19 +369,20 @@ dat <- dgmodel(nid=100000, #making large sample size so enough individuals for c
   b_gcc0=0.13,
   b_gc0l=0.13, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
-  vp=1, 
-  nsnp=99) #estimated variance of protein to be 1
-
+  vp=1, #estimated variance of protein to be 1
+  nsnp=1300) 
 dgmodel_check(dat)
-
-studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)
-
+print("made dat")
+studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result, row, iteration=i)
+print("studies")
 rev <- rev_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+print("rev")
 rev$mr <- "rev"
 fwd <- fwd_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+print("fwd")
 fwd$mr <- "fwd"
 return(rbind(fwd, rev))
-}}) 
+}})
 ```
 Analysis
 ```{r}
@@ -380,10 +394,18 @@ rev_mr_res <- subset(all_res, all_res$mr=="rev")
 #  points(x,y)
 #  abline(lm(y~x), col="red")})
 
+for (row in 1:nrow(rev_mr_res)){
+  if (rev_mr_res[row,1]== " "){
+    rev_mr_res <- rev_mr_res[-row,]
+  }
+  else{}}
+na.omit(rev_mr_res)
+fwd_mr_res$b <- as.numeric(fwd_mr_res$b)
 var_mean_fwd <-  bind_rows(
     vars = var(fwd_mr_res$b), 
     means = mean(fwd_mr_res$b),
     type="fwd")
+rev_mr_res$b <- as.numeric(rev_mr_res$b)
 var_mean_rev <-  bind_rows(
     vars = var(rev_mr_res$b), 
     means = mean(rev_mr_res$b),
@@ -395,6 +417,27 @@ boxplot(fwd_mr_res$b)
 hist(rev_mr_res$b)
 points(x=0.08,y=1, col="red", pch=15)
 boxplot(rev_mr_res$b)
+
+```
+observational and all information on r0
+```{r}
+non_causal_obs <- data.frame()
+for (prot in rev_mr_result$prot){
+  for (sim in 1:reps){
+  file <- read.csv(paste0(prot, sim,"_res_obs.csv"))
+  non_casual <- subset(file, file$x=="r0" & file$y=="d")
+  non_causal_obs <- rbind(non_causal_obs, non_casual%>%
+    mutate(protein=prot))
+}}
+
+non_causal_all <- data.frame()
+for (prot in rev_mr_result$prot){
+  for (sim in 1:reps){
+  file <- read.csv(paste0(prot,sim, "_res_all.csv"))
+  non_casual <- subset(file, file$x=="r0" & file$y=="d")
+  non_causal_all <- rbind(non_causal_all, non_casual %>%
+    mutate(protein=prot))
+}}
 ```
 
 Plot associations between variables in disease and non disease state
@@ -430,25 +473,6 @@ What condition is revMR better than case/control or prospective
 
 Create function to take R0 data from protein cohort and d variable from GWAS data from different subset of population and perform reverse MR
 
-
-observational and all information on r0
-```{r}
-non_causal_obs <- data.frame()
-for (prot in rev_mr_result$prot){
-  file <- read.csv(paste0(prot, "_res_obs.csv"))
-  non_casual <- subset(file, file$x=="r0" & file$y=="d")
-  non_causal_obs <- rbind(non_causal_obs, non_casual%>%
-    mutate(protein=prot))
-}
-
-non_causal_all <- data.frame()
-for (prot in rev_mr_result$prot){
-  file <- read.csv(paste0(prot, "_res_all.csv"))
-  non_casual <- subset(file, file$x=="r0" & file$y=="d")
-  non_causal_all <- rbind(non_causal_all, non_casual %>%
-    mutate(protein=prot))
-}
-```
 
 Obs vs expected:
 ```{r}
