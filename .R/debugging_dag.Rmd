@@ -64,32 +64,44 @@ gwashits <- tribble(
     ~beta, ~af,
     0.26, 0.54
 )
- gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) 
-
+gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) #why not rbinom(nid, 2, gwashits$af) the latter creates a matrix
 
 c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
 
-rsq_prs <- h2_known - (0.1)^2
-prs <- rnorm(nid, mean=0, sd=sqrt(vp*h2_known)) 
+gr_maf <- runif(nsnp, 0.01, 0.99)
 
-l <- c0*b_gc0l +prs*sqrt(rsq_prs)+u2*b_u2l
-gr <- make_geno(nid, nsnp, gr_maf)
-l_for_r0 <- matrix(l,             
-               nrow = nrow(l),
-               ncol = ncol(gr))
-r0 <- gr * sqrt(rsq_gr0) + l_for_r0 * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-rsq_lr0^2-b_u1r0^2)) 
-prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
- 
+prs_b <- rnorm(nsnp)
+
+gprs <- make_geno(nid, nsnp, gr_maf)
+
+prs_known <- (gprs %*% prs_b) %>% {scale(.) * sqrt(h2_known)}
+
+prs_unknown <- rnorm(nid, 0, sd = sqrt(h2_unknown))
+
+prs <- prs_known + prs_unknown
+
+rsq_prs <- h2_known - (0.1)^2 #check this where 0.1 comes from
+
+l <- c0 * b_gc0l + scale(prs) * sqrt(rsq_prs)+ u2 * b_u2l + rnorm(nid, 0, sd = 1 - sqrt(rsq_prs + b_gc0l^2 + b_u2l^2))
+
+gr <- rbinom(nid, 2, gr_maf) #find out if gr_maf should be changed to it's own one
+
+r0 <- scale(gr) * sqrt(rsq_gr0) + scale(l) * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1 - rsq_gr0 - rsq_lr0 - b_u1r0^2))
+
+prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_gc0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev)  
+
 d <- rbinom(nid, 1, prob_l) 
 
-c1 <-c0 *b_c0c1 + u2 * b_u2c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1 - b_u2c1^2- b_c0c1^2))
-r1 <-  r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-b_r0r1^2-b_u1r1^2)) 
+c1 <- c0 * b_c0c1 + u2 * b_u2c1 + d * b_dc1 
 
-join_mat <- cbind(gr, gc)
-   phen <- tibble(
-    u1, u2, r0[,1], r1[,1], c0[,1], c1[,1], prs, l, prob_l, d
-  )
-  return(list(geno_gc=gc,geno_gr=gr, phen=phen, geno_join=join_mat))} 
+r1 <- r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 
+
+join_mat <- cbind(gprs, gr, gc)   
+
+phen <- tibble(
+  u1, u2, r0, r1, c0, c1, prs, l, prob_l, d
+)  
+return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat))}  
 
 dgmodel_check <- function(dat)
 {
@@ -105,14 +117,14 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result, 
   phen <- dat$phen
   res_all <- bind_rows( 
     fast_assoc(y=phen$d, x=phen$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
-    fast_assoc(y=phen$`c0[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=phen$`r0[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
-    fast_assoc(y=phen$prs, x=phen$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=phen$prs, x=phen$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
-    fast_assoc(y=phen$`c1[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=phen$`r1[, 1]`, x=phen$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
-    fast_assoc(y=phen$prs, x=phen$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=phen$prs, x=phen$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1")
+    fast_assoc(y=phen$c0, x=phen$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=phen$r0, x=phen$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=phen$prs, x=phen$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=phen$prs, x=phen$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=phen$c1, x=phen$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=phen$r1, x=phen$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=phen$prs, x=phen$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=phen$prs, x=phen$c1) %>% as_tibble() %>% mutate(x="prs", y="r1")
   ) %>%
     mutate(study="all")
   
@@ -125,36 +137,36 @@ dgmodel_analysis <- function(dat, ncase, ncontrol, protein_gwas, rev_mr_result, 
   print(control)
   res_obs <- bind_rows(
     fast_assoc(y=obs$d, x=obs$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
-    fast_assoc(y=obs$`c0[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=obs$`r0[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
-    fast_assoc(y=obs$prs, x=obs$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=obs$prs, x=obs$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
-    fast_assoc(y=obs$`c1[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=obs$`r1[, 1]`, x=obs$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
-    fast_assoc(y=obs$prs, x=obs$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=obs$prs, x=obs$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+    fast_assoc(y=obs$c0, x=obs$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=obs$r0, x=obs$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=obs$prs, x=obs$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=obs$prs, x=obs$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=obs$c1, x=obs$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=obs$r1, x=obs$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=obs$prs, x=obs$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=obs$prs, x=obs$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   )  %>%
     mutate(study="observational")
 
   prot <- phen[phen$d==0,][1:protein_gwas, ] 
   res_protein <- bind_rows(
     fast_assoc(y=prot$d, x=prot$prs) %>% as_tibble() %>% mutate(x="prs", y="d"),
-    fast_assoc(y=prot$`c0[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="c0_1", y="d"),
-    fast_assoc(y=prot$`r0[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
-    fast_assoc(y=prot$prs, x=prot$`c0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c0_1"),
-    fast_assoc(y=prot$prs, x=prot$`r0[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r0"),
-    fast_assoc(y=prot$`c1[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="c1_1", y="d"),
-    fast_assoc(y=prot$`r1[, 1]`, x=prot$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
-    fast_assoc(y=prot$prs, x=prot$`c1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="c1_1"),
-    fast_assoc(y=prot$prs, x=prot$`r1[, 1]`) %>% as_tibble() %>% mutate(x="prs", y="r1"),
+    fast_assoc(y=prot$c0, x=prot$d) %>% as_tibble() %>% mutate(x="c0", y="d"),
+    fast_assoc(y=prot$r0, x=prot$d) %>% as_tibble() %>% mutate(x="r0", y="d"),
+    fast_assoc(y=prot$prs, x=prot$c0) %>% as_tibble() %>% mutate(x="prs", y="c0"),
+    fast_assoc(y=prot$prs, x=prot$r0) %>% as_tibble() %>% mutate(x="prs", y="r0"),
+    fast_assoc(y=prot$c1, x=prot$d) %>% as_tibble() %>% mutate(x="c1", y="d"),
+    fast_assoc(y=prot$r1, x=prot$d) %>% as_tibble() %>% mutate(x="r1", y="d"),
+    fast_assoc(y=prot$prs, x=prot$c1) %>% as_tibble() %>% mutate(x="prs", y="c1"),
+    fast_assoc(y=prot$prs, x=prot$r1) %>% as_tibble() %>% mutate(x="prs", y="r1"),
   ) %>%
     mutate(study="protein_gwas")
   out_all <- paste0(rev_mr_result[row,]$prot, iteration, "_res_all.csv")
- # write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
+  write.csv(res_all, file = out_all, row.names = FALSE, quote = FALSE)
   out_obs <- paste0(rev_mr_result[row,]$prot, iteration, "_res_obs.csv")
-  #write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
+  write.csv(res_obs, file = out_obs, row.names = FALSE, quote = FALSE)
   out_protein <- paste0(rev_mr_result[row,]$prot, iteration,"_res_protein.csv")
-  #write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
+  write.csv(res_protein, file = out_protein, row.names = FALSE, quote = FALSE)
   return(bind_rows(obs%>%
     mutate(study="observational"), prot%>%
     mutate(study="protein_gwas")))
@@ -180,16 +192,15 @@ summary(lm(phen$prs ~ phen$r0))
 
 Reverse MR
 ```{r}
-rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
+rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase, nsnp){
   phen <- dat$phen
-  #gen <- dat$geno_join
   prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_join[ind, ]
   geno_mat <- data.matrix(genosubset)
   phenosubset <- dat$phen[ind, ]
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  y <- phenosubset$`c0[, 1]`
+  y <- phenosubset$c0
   g <- geno_mat
   gwas_dat <- data.frame()
   for (i in 1:ncol(g)){
@@ -219,7 +230,7 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  x <- phenosubset$`d` #change this to d and do logistic regression to check this as it's binary, l for fast assoc
+  x <- phenosubset$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
   g <- geno_mat
   #gwas_dat <- data.frame()
 #  for (i in 1:ncol(g)){
@@ -232,7 +243,7 @@ for (i in 1:ncol(g)){
 exp_dat <- data.frame()
 for (x in 1:nrow(gwas_dat)){
     cc_dat <- dplyr::tibble(
-      SNP= x,#sort this 
+      SNP= x,
       exposure= "X",
       id.exposure= "X",
       beta.exposure=gwas_dat[x,]$bhat,
@@ -246,18 +257,22 @@ for (x in 1:nrow(gwas_dat)){
   }
   harmonise <- merge(exp_dat, out_dat, by="SNP")
   harmonise$mr_keep <- TRUE
-  n_snp <- harmonise[1:1300,]
+  n_snp <- harmonise[1:nsnp,]
   prs_snp <- subset(n_snp, n_snp$pval.exposure<0.05)#select SNPs reaching threshold
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
-   mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-   return(mr_res)
+   mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+  all_mr_res <- mr(n_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  cc<- fast_assoc(y=phenosubset$d, x=phenosubset$r0) %>% as_tibble() %>% mutate(x="prs", y="d") #case control estimate 
+   return(list(pval=mr_res, all=all_mr_res, casecontrol=cc))
   }else{
     mr_res <- tribble(
   ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, ~mr,
  " ", " ", " ", " "," "," ", " ", " ", " ","rev",
 )
-return(mr_res)
+all_mr_res <- mr(n_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+cc<- fast_assoc(y=phenosubset$d, x=phenosubset$r0) %>% as_tibble() %>% mutate(x="prs", y="d") #case control estimate 
+return(c(pval=mr_res, all=all_mr_res, casecontrol=cc))
   }}
 ```
 
@@ -265,14 +280,13 @@ FORWARD MR
 ```{r}
 fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   phen <- dat$phen
-  #gen <- dat$geno_join
   prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_join[ind, ]
   geno_mat <- data.matrix(genosubset)
   phenosubset <- dat$phen[ind, ]
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  x <- phenosubset$`c0[, 1]`
+  x <- phenosubset$c0
   g <- geno_mat
   gwas_dat <- data.frame()
   for (i in 1:ncol(g)){
@@ -302,7 +316,7 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   genosubset <- no_prot_gen[ind_obs, ]
   geno_mat <- data.matrix(genosubset)
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  y <- phenosubset$`d` #change this to d and do logistic regression to check this as it's binary
+  y <- phenosubset$d #change this to d and do logistic regression to check this as it's binary
   g <- geno_mat
     gwas_dat <- data.frame()
   for (i in 1:ncol(g)){
@@ -328,27 +342,33 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   }
   harmonise <- merge(exp_dat, out_dat, by="SNP")
   harmonise$mr_keep <- TRUE
-  c_snp <- harmonise[1301,] #select simulated causal SNP
+  c_snp <- harmonise[101,] #select simulated causal SNP
   mr_res <- mr(c_snp, metho=c("mr_ivw", "mr_wald_ratio"))
   return(mr_res)}
 ```
 
 ```{r message=FALSE, warning=FALSE} 
+#calculate r-squared
 rev_mr_result <- tribble(
   ~beta, ~prot, ~rsq_lr0, ~se,
- 0.0880, "HMGCS1", 0.2040, 0.0210,
+ #0.0880, "HMGCS1", 0.0053, 0.0210, #0.2040
  #0.0832, "ATAD2", 0.1824, 0.0204,
  #0.0829, "BMPER", 0.1811, 0.0204, 
  #0.0827, "IL5", 0.1802, 0.0204,
  #0.0827, "IL23R", 0.1802, 0.0204,
+ 0.04927, "BCAN",0.00148,0.00678
 )
+#fval <- (0.0880/0.0210)^2
+#rsq <- fval/(3301-2+fval)
+#fval <- (beta/se)^2
+#rsq <- fval/(n-2+fval)
 reps <- 5
-sims <- mclapply(X=1:reps, function(i){
+sims <- lapply(1:reps, function(i){
   for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=1010000, #making large sample size so enough individuals for case control analysis
+dat <- dgmodel(nid=500000, #making large sample size so enough individuals for case control analysis
   h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=6/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  d_prev=1000/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
   #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
   gr_maf=0.20, #need to estimate this allele frequency
   rsq_gr0=0,   
@@ -370,25 +390,55 @@ dat <- dgmodel(nid=1010000, #making large sample size so enough individuals for 
   b_gc0l=0.13, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
   vp=1, #estimated variance of protein to be 1
-  nsnp=1300) 
+  nsnp=99) 
 dgmodel_check(dat)
 print("made dat")
-studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result, row, iteration=i)
-print("studies")
-rev <- rev_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+#studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 34557, rev_mr_result, row, iteration=i)
+#print("studies")
+rev <- rev_mr_prot(dat, n_protein_gwas=35571, ncontrol=18190, ncase=12496, nsnp=99)
 print("rev")
-rev$mr <- "rev"
-fwd <- fwd_mr_prot(dat, n_protein_gwas=3301, ncontrol=18190, ncase=12496)
+rev$all$mr <- "rev_all"
+rev$pval$mr <- "rev_pval"
+fwd <- fwd_mr_prot(dat, n_protein_gwas=35571, ncontrol=18190, ncase=12496)
 print("fwd")
 fwd$mr <- "fwd"
-return(rbind(fwd, rev))
+rev$fwd <- fwd
+#mr <- rbind(rev$all, rev$pval, fwd, rev$casecontrol)
+return(rev)
 }})
 ```
+
+```{r}
+fwd_mr <- data.table()
+for (i in 1:reps){
+  row <- sims[[i]]$fwd
+  fwd_mr <- rbind(fwd_mr, row)
+}
+rev_mr_all <- data.table()
+for (i in 1:reps){
+  row <- sims[[i]]$all
+  rev_mr_all <- rbind(rev_mr_all, row)
+}
+rev_mr_pval <- data.table()
+for (i in 1:reps){
+  row <- sims[[i]]$pval
+  rev_mr_pval <- rbind(rev_mr_pval, row)
+}
+casecontrol <- data.table()
+for (i in 1:reps){
+  row <- sims[[i]]$casecontrol
+  casecontrol <- rbind(casecontrol, row)
+}
+betas <- data.table(revmr_all = rev_mr_all$b, revmr_pval= rev_mr_pval$b, cc=casecontrol$bhat)
+```
+
 Analysis
 ```{r}
-all_res <- rbindlist(sims)
+
+all_res <- sims$mr
 fwd_mr_res <- subset(all_res, all_res$mr=="fwd")
-rev_mr_res <- subset(all_res, all_res$mr=="rev")
+rev_mr_res <- subset(all_res, all_res$mr=="rev_all")#change this to pval if needed
+rev_mr_res_pval <- subset(all_res, all_res$mr=="rev_pval")
 #plot <- fwd_mr_res[,c(7,8)]
 #pairs(plot, panel=function(x,y){
 #  points(x,y)
@@ -421,15 +471,6 @@ boxplot(rev_mr_res$b)
 ```
 observational and all information on r0
 ```{r}
-non_causal_obs <- data.frame()
-for (prot in rev_mr_result$prot){
-  for (sim in 1:reps){
-  file <- read.csv(paste0(prot, sim,"_res_obs.csv"))
-  non_casual <- subset(file, file$x=="r0" & file$y=="d")
-  non_causal_obs <- rbind(non_causal_obs, non_casual%>%
-    mutate(protein=prot))
-}}
-
 non_causal_all <- data.frame()
 for (prot in rev_mr_result$prot){
   for (sim in 1:reps){
@@ -439,6 +480,13 @@ for (prot in rev_mr_result$prot){
     mutate(protein=prot))
 }}
 ```
+
+```{r}
+comb <- data.frame(all_res$cc.bhat, non_causal_all$bhat, rev_mr_res$b, rev_mr_res_pval$b)
+```
+
+
+
 
 Plot associations between variables in disease and non disease state
 ```{r}
