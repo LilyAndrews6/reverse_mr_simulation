@@ -11,6 +11,7 @@ library(dplyr)
 library(TwoSampleMR)
 library(parallel)
 library(data.table)
+library(ggplot2)
 ```
 
 ```{r}
@@ -440,10 +441,10 @@ for (i in 1:reps){
 }
 ```
 
-Data visualization
+Data visualization - all rev mr
 ```{r}
 for (file in 1:nrow(rev_mr_result)){
-res <- data.frame(type = c(rep("revmr", reps), rep("n_cc", reps), rep("actual",reps)), b=c(rev_mr_all$b, casecontrol$bhat, rep(rev_mr_result$beta, reps)), run=c(1:reps, 1:reps, 1:reps), se=c(rev_mr_all$se, casecontrol$se, rep(rev_mr_result$se, reps)))
+res <- data.frame(type = c(rep("revmr", reps), rep("n_cc", reps), rep("pval_revmr", reps),rep("actual",reps)), b=c(rev_mr_all$b, casecontrol$bhat, rev_mr_pval$b,rep(rev_mr_result$beta, reps)), run=c(1:reps, 1:reps, 1:reps, 1:reps), se=c(rev_mr_all$se, casecontrol$se, rev_mr_pval$se,rep(rev_mr_result$se, reps)))
 ggplot(res, aes(x=run, y=b, col=type))+geom_point()+geom_line()+ylim(NA, rev_mr_result$beta+rev_mr_result$se+0.05)+geom_errorbar(aes(ymin = b-se, ymax = b+se), width=0.1) 
 ggsave(paste0("interval_output/", rev_mr_result$prot[file], ".pdf"))}
 ```
