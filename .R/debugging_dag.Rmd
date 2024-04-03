@@ -70,11 +70,12 @@ gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) #why not rbinom(nid, 2, gwashi
 
 c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
 
-gr_maf <- runif(nsnp, 0.01, 0.99)
+#gr_maf <- runif(nsnp, 0.01, 0.99)
+gprs_maf <- rep(gr_maf, nsnp)
 
-prs_b <- rnorm(nsnp)
+prs_b <- rnorm(nsnp)#randomly generated betas
 
-gprs <- make_geno(nid, nsnp, gr_maf)
+gprs <- make_geno(nid, nsnp, gprs_maf)
 
 prs_known <- (gprs %*% prs_b) %>% {scale(.) * sqrt(h2_known)}
 
@@ -103,7 +104,7 @@ join_mat <- cbind(gprs, gr, gc)
 phen <- tibble(
   u1, u2, r0, r1, c0, c1, prs, l, prob_l, d
 )  
-return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat))}  
+return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat, af=gprs_maf))}  
 
 dgmodel_check <- function(dat)
 {
@@ -194,9 +195,9 @@ summary(lm(phen$prs ~ phen$r0))
 
 Reverse MR
 ```{r}
-rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase, nsnp){
+rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   phen <- dat$phen
-  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_prs[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -204,25 +205,7 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase, nsnp){
   stopifnot(nrow(genosubset) == nrow(phenosubset))
   y <- phenosubset$r0
   g <- geno_mat
-  gwas_dat <- data.frame()
-  for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
-  }
-  out_dat <- data.frame()
-  for (y in 1:nrow(gwas_dat)){
-    prot_dat <- dplyr::tibble(
-      SNP= y, 
-      outcome= "Y",
-      id.outcome= "Y",
-      beta.outcome=gwas_dat[y,]$bhat,
-      se.outcome=gwas_dat[y,]$se,
-      pval.outcome=gwas_dat[y,]$pval,
-      samplesize.outcome=gwas_dat[y,]$n,
-      units.outcome="SD",
-      rsq.outcome=gwas_dat[y,]$fval/(gwas_dat[y,]$fval+gwas_dat[y,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-    )
-    out_dat<- rbind(out_dat, prot_dat)
-  }
+  gwasy <- gwas(y,g, logistic = FALSE)
   
   no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
   no_prot_gen <- data.matrix(dat$geno_prs[!ind,])
@@ -234,56 +217,38 @@ rev_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase, nsnp){
   stopifnot(nrow(genosubset) == nrow(phenosubset))
   x <- phenosubset$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
   g <- geno_mat
-  #gwas_dat <- data.frame()
-#  for (i in 1:ncol(g)){
-#    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
-#  }
-gwas_dat <- data.frame()
-for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, logistic_assoc(x,g[,i]))
-}
-exp_dat <- data.frame()
-for (x in 1:nrow(gwas_dat)){
-    cc_dat <- dplyr::tibble(
-      SNP= x,
-      exposure= "X",
-      id.exposure= "X",
-      beta.exposure=gwas_dat[x,]$bhat,
-      se.exposure=gwas_dat[x,]$se,
-      pval.exposure=gwas_dat[x,]$pval,
-      samplesize.exposure=gwas_dat[x,]$n,
-      units.exposure="SD",
-      rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-    )
-    exp_dat<- rbind(exp_dat, cc_dat)
-  }
-  harmonise <- merge(exp_dat, out_dat, by="SNP")
-  harmonise$mr_keep <- TRUE
-  n_snp <- harmonise[1:nsnp,]
-  prs_snp <- subset(n_snp, n_snp$pval.exposure<5e-8)#select SNPs reaching threshold
+  gwasx <- gwas(x,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)#select SNPs reaching threshold
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
    mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
-  all_mr_res <- mr(n_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-  nested <- bind_rows(obs[obs$d == 0,][1:487,], obs[obs$d == 1,][1:487,]) #487 example based on nested case control study
-  nested<- fast_assoc(y=nested$d, x=nested$r0) %>% as_tibble() %>% mutate(x="r0", y="d") #case control estimate 
-   return(list(pval=mr_res, all=all_mr_res, casecontrol=nested))
+  all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+   return(list(pval=mr_res, all=all_mr_res))
   }else{
     mr_res <- tribble(
   ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, ~mr,
  " ", " ", " ", " "," "," ", " ", " ", " ","rev",
 )
-all_mr_res <- mr(n_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-cc<- fast_assoc(y=phenosubset$d, x=phenosubset$r0) %>% as_tibble() %>% mutate(x="prs", y="d") #case control estimate 
-return(c(pval=mr_res, all=all_mr_res, casecontrol=cc))
+all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+return(c(pval=mr_res, all=all_mr_res))
   }}
+```
+Nested case control analysis
+```{r}
+nested_case_control <- function(dat, nestedcase, nestedcontrol){
+    phen <- dat$phen
+ nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
+  log_nested<- logistic_assoc(y=nested$d, x=nested$r0) %>% as_tibble() %>% mutate(x="r0", y="d") #case control estimate 
+  #fast_nested<- fast_assoc(y=nested$d, x=nested$r0) %>% as_tibble() %>% mutate(x="r0", y="d") #case control estimate 
+  return(c(casecontrol=log_nested))} #fast_cc=fast_nested
 ```
 
 FORWARD MR
 ```{r}
 fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   phen <- dat$phen
-  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first 3301
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_join[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -291,25 +256,7 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   stopifnot(nrow(genosubset) == nrow(phenosubset))
   x <- phenosubset$c0
   g <- geno_mat
-  gwas_dat <- data.frame()
-  for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(x,g[,i]))
-  }
-  exp_dat <- data.frame()
-  for (x in 1:nrow(gwas_dat)){
-    prot_dat <- dplyr::tibble(
-      SNP=x, 
-      exposure= "X",
-      id.exposure= "X",
-      beta.exposure=gwas_dat[x,]$bhat,
-      se.exposure=gwas_dat[x,]$se,
-      pval.exposure=gwas_dat[x,]$pval,
-      samplesize.exposure=gwas_dat[x,]$n,
-      units.exposure="SD",
-      rsq.exposure=gwas_dat[x,]$fval/(gwas_dat[x,]$fval+gwas_dat[x,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-    )
-    exp_dat<- rbind(exp_dat, prot_dat)
-  }
+  gwasx <- gwas(x,g, logistic = FALSE)
   
   no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
   no_prot_gen <- data.matrix(dat$geno_join[!ind,])
@@ -322,63 +269,114 @@ fwd_mr_prot <- function(dat, n_protein_gwas, ncontrol, ncase){
   y <- phenosubset$d #change this to d and do logistic regression to check this as it's binary
   g <- geno_mat
     gwas_dat <- data.frame()
-  for (i in 1:ncol(g)){
-    gwas_dat <- rbind(gwas_dat, logistic_assoc(y,g[,i]))
-}
- # for (i in 1:ncol(g)){
-#    gwas_dat <- rbind(gwas_dat, simulateGP::fast_assoc(y,g[,i]))
-#  }
- out_dat <- data.frame()
-  for (y in 1:nrow(gwas_dat)){
-    cc_dat <- dplyr::tibble(
-      SNP= y, 
-      outcome= "Y",
-      id.outcome= "Y",
-      beta.outcome=gwas_dat[y,]$bhat,
-      se.outcome=gwas_dat[y,]$se,
-      pval.outcome=gwas_dat[y,]$pval,
-      samplesize.outcome=gwas_dat[y,]$n,
-      units.outcome="SD",
-      rsq.outcome=gwas_dat[y,]$fval/(gwas_dat[y,]$fval+gwas_dat[y,]$n-2) #n-2 for degrees of freedom https://analystprep.com/cfa-level-1-exam/quantitative-methods/coefficient-of-determination-and-f-statistic/
-    )
-    out_dat<- rbind(out_dat, cc_dat)
-  }
-  harmonise <- merge(exp_dat, out_dat, by="SNP")
-  harmonise$mr_keep <- TRUE
+ gwasy <- gwas(y,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
   c_snp <- harmonise[101,] #select simulated causal SNP
   mr_res <- mr(c_snp, metho=c("mr_ivw", "mr_wald_ratio"))
   return(mr_res)}
 ```
 
-```{r message=FALSE, warning=FALSE} 
+```{r}
+all_assoc <- function(dat){
+y <- dat$phen$r0
+  g <- dat$geno_prs
+  gwasy <- gwas(y,g, logistic = FALSE)
+  x <- dat$phen$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
+  g <- dat$geno_prs
+gwasx <- gwas(x,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)#select SNPs reaching threshold
+   mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+  all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(c(real_pval=mr_res, real=all_mr_res))
+  }
+```
+
+
+```{r message=TRUE}
 #calculate r-squared
 rev_mr_result <- tribble(
   ~beta, ~prot, ~rsq_lr0, ~se,
- #0.0879946, "HMGCS1", 0.0052923, 0.0210034, 
+ 0.0879946, "HMGCS1", 0.0052923, 0.0210034, 
  #0.0832134, "ATAD2", 0.0049975, 0.0204426,
  #0.0829339, "BMPER", 0.0049653, 0.0204403, 
  #0.0827007, "IL5", 0.0049354, 0.0204447,
  #0.0826643, "IL23R", 0.0049313, 0.0204444,
  #0.0497226, "BCAN",0.0016068,0.0067785 #ukbb n=33436
- 0.0447559, "SPINK2",0.0013336,0.0067233 #ukbb n=33187
+ #0.0447559, "SPINK2",0.0013336,0.0067233 #ukbb n=33187
  #0.01168, "test egfr", 0.00863,0.00218, 
 )
 #fval <- (0.0880/0.0210)^2
 #rsq <- fval/(3301-2+fval)
 #fval <- (beta/se)^2
 #rsq <- fval/(n-2+fval)
-reps <- 25
-sims <- lapply(1:reps, function(i){
-  for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=500000, #making large sample size so enough individuals for case control analysis
+param  <- expand.grid(
+  n_prot=34557,#c(34557, 35559, 3301),
+  af = seq(0.2, 0.4, by=0.1),
+  b=c(0.0879946, -0.0354690,0.0497226), 
+  rsq_lr0=c(0.0052923,0.0008683,0.0016068),
+  nestedcasecontrol=487,#c(113, 487,593),
+  sims=1:2
+)
+sims <- lapply(1:nrow(param), function(i){
+  print(param[i,])
+dat <- dgmodel(nid=60000, #making large sample size so enough individuals for case control analysis
   h2_known=0.2, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/ - changing the h2_known as we have a large sample size to accommodate case control data needed for glioma but this inturn weakens the instruemnts so we increase h2_known
   h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=3000/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  d_prev=4000/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
   #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
-  gr_maf=0.20, #need to estimate this allele frequency
+  gr_maf=param$af[i], #need to estimate this allele frequency 0.1*i
   rsq_gr0=0,   
   rsq_gc0=0, 
-  rsq_lr0=rev_mr_result[row,]$rsq_lr0,
+  rsq_lr0=param$rsq_lr0[i],
+  b_u1r1=0, 
+  b_u1l=0, 
+  b_u2c1=0, 
+  b_u2l=0, 
+  b_dr1=0, #non causal marker stays the same in disease
+  b_dc1=1, #causal marker increases beta 1 in disease
+  b_c0c1=1, 
+  b_r0r1=1, 
+  b_u2c0=0, 
+  b_u1r0=0, 
+  b_u1d=0, 
+  b_u2d=0, 
+  b_gcc0=0.13, #not 0.13 which is used to be as need to make 0.26 for causal effect
+  b_gc0l=0, #set to this as beta of c0 is this 
+  var_l=1, #estimated variance of liability to be 1
+  vp=1, #estimated variance of protein to be 1
+  nsnp=99) 
+#dgmodel_check(dat)
+#studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 34557, rev_mr_result, row, iteration=i)
+#print("studies")
+rev <- rev_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+rev$all$mr <- "rev_all"
+rev$pval$mr <- "rev_pval"
+nest <- nested_case_control(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+rev$casecontrol <- nest
+fwd <- fwd_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+fwd$mr <- "fwd"
+rev$fwd <- fwd
+real <- all_assoc(dat)
+rev$real <- real
+rev$af <- param$af[i]
+rev$b <- param$b[i]
+rev$n <- param$n[i]
+return(rev)
+}) 
+```
+
+```{r}
+sims <- lapply(1:10, function(i){
+dat <- dgmodel(nid=60000, #making large sample size so enough individuals for case control analysis
+  h2_known=0.15, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/ - changing the h2_known as we have a large sample size to accommodate case control data needed for glioma but this inturn weakens the instruemnts so we increase h2_known
+  h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
+  d_prev=4000/10000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
+  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
+  gr_maf=0.3, #need to estimate this allele frequency 0.1*i
+  rsq_gr0=0,   
+  rsq_gc0=0, 
+  rsq_lr0=0.0052923,
   b_u1r1=0, 
   b_u1l=0, 
   b_u2c1=0, 
@@ -392,54 +390,124 @@ dat <- dgmodel(nid=500000, #making large sample size so enough individuals for c
   b_u1d=0, 
   b_u2d=0, 
   b_gcc0=0.13,
-  b_gc0l=0.13, #set to this as beta of c0 is this 
+  b_gc0l=0, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
   vp=1, #estimated variance of protein to be 1
   nsnp=99) 
-dgmodel_check(dat)
-print("made dat")
-#studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 34557, rev_mr_result, row, iteration=i)
-#print("studies")
-rev <- rev_mr_prot(dat, n_protein_gwas=33187, ncontrol=18190, ncase=12496, nsnp=99)
-print("rev")
+rev <- rev_mr_prot(dat, n_protein_gwas=34557, ncontrol=18190, ncase=12496)
 rev$all$mr <- "rev_all"
 rev$pval$mr <- "rev_pval"
-fwd <- fwd_mr_prot(dat, n_protein_gwas=33187, ncontrol=18190, ncase=12496)
-print("fwd")
+nest <- nested_case_control(dat, nestedcase=487, nestedcontrol=487)
+rev$casecontrol <- nest
+fwd <- fwd_mr_prot(dat, n_protein_gwas=34557, ncontrol=18190, ncase=12496)
 fwd$mr <- "fwd"
 rev$fwd <- fwd
-#mr <- rbind(rev$all, rev$pval, fwd, rev$casecontrol)
-a <- gwas(y = dat$phen$l, g = dat$geno_prs)
-index <- a$pval < 5e-8
-e <- simulateGP::get_effs(x = dat$phen$l, g = dat$geno_prs[,index], y = dat$phen$r0)
-real <- mr(e, method="mr_ivw")
-print(real)
+real <- all_assoc(dat)
+rev$real <- real
+rev$af <- param$af[i]
+rev$b <- param$b[i]
+rev$n <- param$n[i]
 return(rev)
-}})
+}) 
+
+real_mr <- data.table()
+for (i in 1:10){
+    row <- sims[[i]]$real
+    real_mr <- rbind(real_mr, row)
+}
+
+res <- data.frame(type = c(rep("revmr_all", nrow(real_mr)), rep("actual",nrow(real_mr))), b=c(real_mr$real.b, rep(0.0879946, nrow(real_mr))), run=c(1:nrow(real_mr), 1:nrow(real_mr)), se=c(real_mr$real.se, rep(0.0210034, nrow(real_mr))))
+ggplot(res, aes(x=run, y=b, col=type))+geom_point()+geom_line()+ylim(NA, rev_mr_result$beta+rev_mr_result$se+0.05)+geom_errorbar(aes(ymin = b-se, ymax = b+se), width=0.1) 
+
+rev_mr_all <- data.table()
+for (i in 1:10){
+  row <- sims[[i]]$all
+  rev_mr_all <- rbind(rev_mr_all, row, fill=TRUE)
+}
+nested <- data.table()
+for (i in 1:10){
+  row <- sims[[i]]$casecontrol
+  nested <- rbind(nested, row, fill=TRUE)
+}
+res <- data.frame(type = c(rep("revmr_all", nrow(real_mr)), rep("revmr_selected",nrow(rev_mr_all)),rep("actual",nrow(real_mr)), rep("nested", nrow(nested)))
+, b=c(real_mr$real.b,rev_mr_all$b, rep(0.0879946, nrow(real_mr)), nested$casecontrol.bhat), run=c(1:nrow(rev_mr_all), 1:nrow(real_mr),1:nrow(real_mr), 1:nrow(nested)), se=c(real_mr$real.se, rev_mr_all$se,rep(0.0210034, nrow(real_mr)), nested$casecontrol.se))
+ggplot(res, aes(x=run, y=b, col=type))+geom_point()+geom_line()+ylim(NA, rev_mr_result$beta+rev_mr_result$se+0.05)+geom_errorbar(aes(ymin = b-se, ymax = b+se), width=0.1) +geom_hline(yintercept=mean(real_mr$real.b), color = "darkorchid")+geom_hline(yintercept=mean(rev_mr_all$b), color = "darkcyan")+geom_hline(yintercept=mean(nested$casecontrol.bhat), color = "darkolivegreen4")
 ```
 
 ```{r}
 fwd_mr <- data.table()
-for (i in 1:reps){
+for (i in 1:nrow(param)){
   row <- sims[[i]]$fwd
   fwd_mr <- rbind(fwd_mr, row)
 }
 rev_mr_all <- data.table()
-for (i in 1:reps){
+for (i in 1:nrow(param)){
   row <- sims[[i]]$all
   rev_mr_all <- rbind(rev_mr_all, row)
 }
 rev_mr_pval <- data.table()
-for (i in 1:reps){
+for (i in 1:nrow(param)){
   row <- sims[[i]]$pval
   rev_mr_pval <- rbind(rev_mr_pval, row)
 }
-casecontrol <- data.table()
-for (i in 1:reps){
+casecontrol_log <- data.table()
+for (i in 1:nrow(param)){
   row <- sims[[i]]$casecontrol
-  casecontrol <- rbind(casecontrol, row)
+  casecontrol_log <- rbind(casecontrol_log, row)
 }
+af <- data.table()
+for (i in 1:nrow(param)){
+  row <- sims[[i]]$af
+  avg <- mean(row)
+  af <- rbind(af, avg)
+}
+real_mr <- data.table()
+ for (i in 1:nrow(param)){
+     row <- sims[[i]]$real
+     real_mr <- rbind(real_mr, row)
+ }
+real_mr_all <- real_mr[,10:18]
 ```
+
+Power and bias
+```{r}
+rev_mr_all$af <- af
+rev_mr_all$n_prot <- param$n_prot
+rev_mr_all$beta <- param$b
+real_mr_all$af <- af
+real_mr_all$n_prot <- param$n_prot
+real_mr_all$beta <- param$b
+real_mr_all$mr <- "real"
+colnames(real_mr_all) <- c("id.exposure","id.outcome","outcome","exposure","method","nsnp","b", "se", "pval", "af", "n_prot", "beta", "mr")
+casecontrol_log$af <- af
+casecontrol_log$n_prot <- param$n_prot
+casecontrol_log$beta <- param$b
+res <- rbind(rev_mr_all, real_mr_all)
+res <- res[,7:13]
+cc_res <- casecontrol_log[,c(2,3,5,9,10,11)]
+colnames(cc_res) <- c("b", "se", "pval", "af", "n_prot", "beta")
+cc_res$mr <- "casecontrol"
+res <- rbind(cc_res, res)
+
+sum_res <- res %>% group_by(n_prot, af, beta, mr) %>%
+        summarise(bias=mean((b)-beta),
+        power=sum(pval<0.05/n())) #divided by the group size to adjust for multiple testing
+
+ggplot(sum_res, aes(x=af, y=bias, color=mr)) +
+    geom_point() +
+    geom_line() +
+    facet_grid(n_prot ~beta)
+
+ggplot(sum_res, aes(x=af, y=power, color=mr)) +
+    geom_point() +
+    geom_line() +
+    facet_grid(n_prot ~ beta)
+```
+
+
+
+
+
 
 Data visualization - all rev mr
 ```{r}
