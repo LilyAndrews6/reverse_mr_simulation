@@ -58,7 +58,8 @@ dgmodel <- function(nid, #making large sample size so enough individuals for cas
   b_gc0l,#set to this as beta of c0 is this 
   var_l, #estimated variance of liability to be 1
   vp, 
-  nsnp)  #assuming variance of genetic liability is 1
+  nsnp,
+  b_dx1)  #assuming variance of genetic liability is 1
 {
   u1 <- rnorm(nid) 
   u2 <- rnorm(nid) 
@@ -99,10 +100,12 @@ c1 <- c0 * b_c0c1 + u2 * b_u2c1 + d * b_dc1
 
 r1 <- r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 
 
+x1 <- d * b_dx1 + rnorm(nid, sd=sqrt(1 - b_dx1^2*var(d)))  #protein as a consequence of disease - error needs addition of variance of disease
+
 join_mat <- cbind(gprs, gr, gc)   
 
 phen <- tibble(
-  u1, u2, r0, r1, c0, c1, prs, l, prob_l, d
+  u1, u2, r0, r1, c0, c1, prs, l, prob_l, d, x1
 )  
 return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat, af=gprs_maf))}  
 
@@ -293,6 +296,254 @@ gwasx <- gwas(x,g, logistic = TRUE)
 ```
 
 
+```{r}
+## p2 revmr
+
+rev_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_prs[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  phenosubset<- data.frame(phenosubset)
+  y <- phenosubset$r0
+  g <- geno_mat
+  gwasy <- gwas(y,g, logistic = FALSE)
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_prs[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)#select SNPs reaching threshold
+  print(prs_snp)
+  if (dim(prs_snp)[1]>0){
+    mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, 
+      " ", " ", " ", " "," "," ", " ", " ", " ",
+    )
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return()
+  }}
+
+## p1 revmr
+
+rev_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_gc[ind, ] #change this to gc
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$c0 #change this for c0
+  g <- geno_mat
+  gwasy <- gwas(y,g, logistic = FALSE)
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_prs[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)#select SNPs reaching threshold
+  print(prs_snp)
+  if (dim(prs_snp)[1]>0){
+    mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, 
+      " ", " ", " ", " "," "," ", " ", " ", " ",
+    )
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return()
+  }}
+
+#x1 consequence of disease
+
+rev_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  #d[d=="1"] <- 2 ##check this converting all disease phenotype to 2 as proteins consequence of disease only in diseased individuals?
+  genosubset <- dat$geno_prs[ind, ] #CHECK THIS
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$x1 
+  g <- geno_mat
+  gwasy <- gwas(y,g, logistic = FALSE)
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_prs[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$d #change this to d and do logistic regression to check this as it's binary, l for fast assoc
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  prs_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)#select SNPs reaching threshold
+  print(prs_snp)
+  if (dim(prs_snp)[1]>0){
+    mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval,
+      " ", " ", " ", " "," "," ", " ", " ", " ",
+    )
+    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
+    return()
+  }}
+
+##forward mr p1
+
+fwd_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_gc[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$c0
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = FALSE)
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_join[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$d #change this to d and do logistic regression to check this as it's binary
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  gwasy <- gwas(y,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
+  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(mr_res)}
+
+fwd_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_prs[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$r0
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = FALSE)
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_join[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$d #change this to d and do logistic regression to check this as it's binary
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  gwasy <- gwas(y,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
+  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(mr_res)}
+
+## fwd p3
+
+fwd_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase){
+  phen <- dat$phen
+  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
+  genosubset <- dat$geno_prs[ind, ]
+  geno_mat <- data.matrix(genosubset)
+  phenosubset <- dat$phen[ind, ]
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  x <- phenosubset$x1
+  g <- geno_mat
+  gwasx <- gwas(x,g, logistic = FALSE)
+  
+  no_prot_phen <- dat$phen[!ind,] #remove protein individuals so no overlap
+  no_prot_gen <- data.matrix(dat$geno_join[!ind,])
+  obs <- bind_rows(no_prot_phen[no_prot_phen$d == 0,][1:ncontrol,], no_prot_phen[no_prot_phen$d == 1,][1:ncase,])
+  ind_obs <- do.call(paste0, no_prot_phen) %in% do.call(paste0, obs)
+  phenosubset <- no_prot_phen[ind_obs, ]
+  genosubset <- no_prot_gen[ind_obs, ]
+  geno_mat <- data.matrix(genosubset)
+  stopifnot(nrow(genosubset) == nrow(phenosubset))
+  y <- phenosubset$d #change this to d and do logistic regression to check this as it's binary
+  g <- geno_mat
+  gwas_dat <- data.frame()
+  gwasy <- gwas(y,g, logistic = TRUE)
+  harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
+  p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
+  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
+  return(mr_res)}
+
+##case control p2
+
+nested_case_control_p2 <- function(dat, nestedcase, nestedcontrol){
+  phen <- dat$phen
+  nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
+  log_nested<- logistic_assoc(y=nested$d, x=nested$r0)  #case control estimate 
+  return(log_nested)} #fast_cc=fast_nested
+
+##case control p1
+
+nested_case_control_p1 <- function(dat, nestedcase, nestedcontrol){
+  phen <- dat$phen
+  nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
+  log_nested<- logistic_assoc(y=nested$d, x=nested$c0)  #case control estimate 
+  return(log_nested)} #fast_cc=fast_nested
+
+##case control p3
+
+nested_case_control_p3 <- function(dat, nestedcase, nestedcontrol){
+  phen <- dat$phen
+  nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
+  log_nested<- logistic_assoc(y=nested$d, x=nested$x1) #case control estimate 
+  return(log_nested)} #fast_cc=fast_nested
+
+##calculate score
+
+df <- data.frame(rev= rev_p_score, fwd = fwd_p_score, cc=cc_p_score)
+
+```
+
+
+
 ```{r message=TRUE}
 #calculate r-squared
 rev_mr_result <- tribble(
@@ -313,10 +564,10 @@ rev_mr_result <- tribble(
 param  <- expand.grid(
   n_prot=34557,#c(34557, 35559, 3301),
   af = seq(0.2, 0.4, by=0.1),
-  b=c(0.0879946, -0.0354690,0.0497226), 
-  rsq_lr0=c(0.0052923,0.0008683,0.0016068),
-  nestedcasecontrol=487,#c(113, 487,593),
-  sims=1:2
+  b=0.0879946,#c(0.0879946, -0.0354690,0.0497226), 
+  rsq_lr0=0.0052923,#c(0.0052923,0.0008683,0.0016068),
+  nestedcasecontrol=2000,#c(487,3000),#c(113, 487,593),
+  sims=1
 )
 sims <- lapply(1:nrow(param), function(i){
   print(param[i,])
@@ -345,25 +596,60 @@ dat <- dgmodel(nid=60000, #making large sample size so enough individuals for ca
   b_gc0l=0, #set to this as beta of c0 is this 
   var_l=1, #estimated variance of liability to be 1
   vp=1, #estimated variance of protein to be 1
-  nsnp=99) 
+  nsnp=99,
+  b_dx1=0.01) 
 #dgmodel_check(dat)
 #studies <- dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 34557, rev_mr_result, row, iteration=i)
 #print("studies")
-rev <- rev_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-rev$all$mr <- "rev_all"
-rev$pval$mr <- "rev_pval"
-nest <- nested_case_control(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
-rev$casecontrol <- nest
-fwd <- fwd_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-fwd$mr <- "fwd"
-rev$fwd <- fwd
-real <- all_assoc(dat)
-rev$real <- real
-rev$af <- param$af[i]
-rev$b <- param$b[i]
-rev$n <- param$n[i]
-return(rev)
+#rev <- rev_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+#rev$all$mr <- "rev_all"
+#rev$pval$mr <- "rev_pval"
+#nest <- nested_case_control(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+#rev$casecontrol <- nest
+#fwd <- fwd_mr_prot(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+#fwd$mr <- "fwd"
+#rev$fwd <- fwd
+#real <- all_assoc(dat)
+#rev$real <- real
+#rev$af <- param$af[i]
+#rev$b <- param$b[i]
+#rev$n <- param$n[i]
+
+p1_rev <- rev_mr_prot_p1(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_rev <- rev_mr_prot_p2(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_rev <- rev_mr_prot_p3(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+pval_rev <- rbind(p1_rev, p2_rev, p3_rev)
+pval_rev <- subset(pval_rev, pval_rev$pval<0.05)
+print(pval_rev)
+rev_p_score <- sum(pval_rev$b)
+
+p1_fwd <- fwd_mr_prot_p1(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_fwd <- fwd_mr_prot_p2(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_fwd <- fwd_mr_prot_p3(dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+pval_fwd <- rbind(p1_fwd, p2_fwd, p3_fwd)
+pval_fwd <- subset(pval_fwd, pval_fwd$pval<0.05)
+print(pval_fwd)
+fwd_p_score <- sum(pval_fwd$b)
+
+p1_cc <- nested_case_control_p1(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p2_cc <- nested_case_control_p2(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p3_cc <- nested_case_control_p3(dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+cc <- rbind(p1_cc, p2_cc, p3_cc)
+cc<- as.data.frame(cc)
+pval_cc <- subset(cc, cc$pval<0.05)
+print(pval_cc)
+cc_p_score <- sum(unlist(pval_cc$bhat))
+
+pscore_df <- data.frame(rev= rev_p_score, fwd = fwd_p_score, cc=cc_p_score)
+
+return(pscore_df) #list(c(rev, pscore_df))
 }) 
+
+pscore <- data.table()
+for (i in 1:nrow(param)){
+    row <- sims[[i]]
+    pscore <- rbind(pscore, row)
+}
 ```
 
 ```{r}

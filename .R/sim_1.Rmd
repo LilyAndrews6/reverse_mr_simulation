@@ -5,265 +5,114 @@ date: "2023-11-28"
 output: github_document
 ---
 Install packages
-```{r message=FALSE}
+Install packages
+```{r message=FALSE, warning=FALSE}
 library(tibble)
 library(simulateGP)
 library(dplyr)
 library(TwoSampleMR)
+library(parallel)
+library(data.table)
+library(ggplot2)
 ```
 
 Simulation 1
 
 Data generating model using results from INTERVAL pQTL dataset (https://www.nature.com/articles/s41586-018-0175-2) and glioma GWAS (https://www.nature.com/articles/ng.3823):
 ```{r}
-rmarkdown::render(".R/sims_functions.Rmd")
-rev_mr_result <- tribble(
-  ~beta, ~prot, ~rsq_lr0,
- 0.0880, "HMGCS1", 0.2040,
- 0.0832, "ATAD2", 0.1824,
- 0.0829, "BMPER", 0.1811,
- 0.0827, "IL5", 0.1802,
- 0.0827, "IL23R", 0.1802,
+rmarkdown::render("sims_functions.Rmd")
+
+param  <- expand.grid(
+  n_prot=34557,
+  af = 0.2,
+  b=0.0879946, 
+  rsq_lr0=0.0052923,
+  nestedcasecontrol=2000,
+  x1=0.1,
+  sims=1
 )
 
-for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=10000000, #making large sample size so enough individuals for case control analysis
-  nsnp=99, #don't think we need this variable anymore
-  b_gl=rnorm(99), #no need for this term anymore
-  h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
-  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
-  b_c0l=sqrt(0.01), 
-  gc_maf=0.5, #don't think this is needed anymore
-  gr_maf=0.5, #need to estimate this allele frequency
-  rsq_gr0=0.1,   
-  rsq_gc0=0.1, 
-  rsq_lr0=rev_mr_result[row,]$rsq_lr0,
-  b_u1r1=0.1, 
-  b_u1l=0.1, 
-  b_u2c1=0.1, 
-  b_u2l=0.1, 
-  b_dr1=0.1, 
-  b_dc1=0.1, 
-  b_c0c1=0.1, 
-  b_r0r1=0.1, 
-  b_u2c0=0.1, 
-  b_gcc0=0.1, 
-  b_lc0=0.1,
-  b_u1r0=0.1, 
-  b_u1d=0.1, 
-  b_u2d=0.1, 
-  b_gcc1=0.1,
-  var_l=1, #estimated variance of liability to be 1
-  vp=1) #estimated variance of protein to be 1
+sims <- lapply(1:nrow(param), function(i){
+  
+print(param[i,])
+  
+testing_dat <- dgmodel(nid=60000, 
+b_gcc0=0.13,
+b_u2c0=0,
+gr_maf=param$af[i],
+nsnp=99,
+h2_known=0.2,
+h2_unknown=0.19,
+b_c0l=0,
+b_u2l=0,
+rsq_gr0=0,
+rsq_lr0=param$rsq_lr0[i],
+b_u1r0=0,
+b_u1d=0,
+b_u2d=0,
+d_prev=3/10,
+b_c0c1=1,
+b_u2c1=0,
+b_dc1=1,
+b_r0r1=1,
+b_u1r1=0,
+b_dr1=0,
+b_dx1=param$x1[i]) 
 
-dgmodel_check(dat)
+p1_rev <- rev_mr_prot_p1(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_rev <- rev_mr_prot_p2(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_rev <- rev_mr_prot_p3(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+pval_rev <- rbind(p1_rev, p2_rev, p3_rev)
+betas_rev <- subset(pval_rev, pval_rev$pval<0.05)
 
-dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)}
-```
-Set terms to 0 to check results
-```{r}
-rev_mr_result <- tribble(
-  ~beta, ~prot, ~rsq_lr0,
- 0.0880, "HMGCS1", 0.2040,
- 0.0832, "ATAD2", 0.1824,
- 0.0829, "BMPER", 0.1811,
- 0.0827, "IL5", 0.1802,
- 0.0827, "IL23R", 0.1802,
-)
+p1_fwd <- fwd_mr_prot_p1(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_fwd <- fwd_mr_prot_p2(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_fwd <- fwd_mr_prot_p3(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+pval_fwd <- rbind(p1_fwd, p2_fwd, p3_fwd)
+betas_fwd <- subset(pval_fwd, pval_fwd$pval<0.05)
 
-for(row in 1:nrow(rev_mr_result)){
-dat <- dgmodel(nid=10000000, #making large sample size so enough individuals for case control analysis
-  nsnp=99, #don't think we need this variable anymore
-  b_gl=rnorm(99), #no need for this term anymore
-  h2_known=0.06, #h-squared value (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  h2_unknown=0.19, #to total 0.25 of total H-squared (form of r-squared) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=6/100000, #glioma prevalence https://www.ncbi.nlm.nih.gov/books/NBK441874/#:~:text=In%20the%20United%20States%2C%20there,the%20least%20malignant%20brain%20tumors.
-  #b_lr0=rev_mr_result[row,]$beta,  #adding rev MR results into data generating model
-  b_c0l=0, 
-  gc_maf=0, #don't think this is needed anymore
-  gr_maf=0.20, #need to estimate this allele frequency
-  rsq_gr0=0,   
-  rsq_gc0=0, 
-  rsq_lr0=0,
-  b_u1r1=0, 
-  b_u1l=0, 
-  b_u2c1=0, 
-  b_u2l=0, 
-  b_dr1=0, 
-  b_dc1=0, 
-  b_c0c1=0, 
-  b_r0r1=0, 
-  b_u2c0=0, 
-  b_gcc0=0, 
-  b_lc0=0,
-  b_u1r0=0, 
-  b_u1d=0, 
-  b_u2d=0, 
-  b_gcc1=0,
-  var_l=1, #estimated variance of liability to be 1
-  vp=1) #estimated variance of protein to be 1
+p1_cc <- nested_case_control_p1(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p2_cc <- nested_case_control_p2(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p3_cc <- nested_case_control_p3(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+cc <- rbind(p1_cc, p2_cc, p3_cc)
+cc<- as.data.frame(cc)
+betas_cc <- subset(cc, cc$pval<0.05)
 
-dgmodel_check(dat)
+training_dat <- dgmodel(nid=60000, 
+b_gcc0=0.13,
+b_u2c0=0,
+gr_maf=param$af[i],
+nsnp=99,
+h2_known=0.2,
+h2_unknown=0.19,
+b_c0l=0,
+b_u2l=0,
+rsq_gr0=0,
+rsq_lr0=param$rsq_lr0[i],
+b_u1r0=0,
+b_u1d=0,
+b_u2d=0,
+d_prev=3/10,
+b_c0c1=1,
+b_u2c1=0,
+b_dc1=1,
+b_r0r1=1,
+b_u1r1=0,
+b_dr1=0,
+b_dx1=param$x1[i])
 
-dgmodel_analysis(dat, ncase=12496, ncontrol=18190, protein_gwas = 3301, rev_mr_result)}
-```
+protein_model_rev <- score_model(betas_rev, testing_dat, nid)
+protein_model_fwd <- score_model(betas_fwd, testing_dat, nid)
+protein_model_cc <- score_model(betas_cc, testing_dat, nid)
 
-##to trial
-#prevalence of disease in population - e.g. if no disease in population can it still predict?
-Scenerio - Alter heritability explained
-```{r}
-set.seed(100)
-reps = 1000
-scenerio <- 1
-dat <- dgmodel(
-  nid=100000, #number of individuals
-  nsnp=99, #number of snps
-  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
-  b_gl=rnorm(99), 
-  rsq_prs=0.06, 
-  rsq_zl=0.19, 
-  d_prev=5/1000, 
-  b_lr0=sqrt(0.1), 
-  b_c0l=sqrt(0.01), 
-  gr_maf=0.5, 
-  rsq_gr0=0.1,   # this is a pqtl - often large effect size
-  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
-  b_u1r1=0.1, 
-  b_u1l=0.1, 
-  b_u2c1=0.1, 
-  b_u2l=0.1, 
-  b_dr1=0.1, 
-  b_dc1=0.1, 
-  b_c0c1=0.1, 
-  b_r0r1=0.1, 
-  b_u2c0=0.1, 
-  b_gcc0=0.1, 
-  b_lc0=0.1, 
-  b_u1r0=0.1, 
-  b_u1d=0.1, 
-  b_u2d=0.1)
-```
+pscore_df <- data.frame(rev = protein_model_rev, fwd = protein_model_fwd, cc = protein_model_cc)
 
-Scenerio - Alteration of causal SNPs
-```{r}
-set.seed(13)
-reps = 1000
-scenerio <- 2
-dat <- dgmodel(
-  nid=100000, #number of individuals
-  nsnp=99, #number of snps
-  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
-  b_gl=rnorm(99), 
-  rsq_prs=0.06, 
-  rsq_zl=0.19, 
-  d_prev=5/1000, 
-  b_lr0=sqrt(0.1), 
-  b_c0l=sqrt(0.01), 
-  gr_maf=0.5, 
-  rsq_gr0=0.1,   # this is a pqtl - often large effect size
-  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
-  b_u1r1=0.1, 
-  b_u1l=0.1, 
-  b_u2c1=0.1, 
-  b_u2l=0.1, 
-  b_dr1=0.1, 
-  b_dc1=0.1, 
-  b_c0c1=0.1, 
-  b_r0r1=0.1, 
-  b_u2c0=0.1, 
-  b_gcc0=0.1, 
-  b_lc0=0.1, 
-  b_u1r0=0.1, 
-  b_u1d=0.1, 
-  b_u2d=0.1)
-```
-Apply this to pQTL data (deCODE)
-```{r}
-#first example
-dat <- dgmodel(
-  nid=35559, #number of individuals
-  nsnp=99, #number of snps
-  gc_maf=runif(99, 0.05, 0.95), #no rare variants included
-  b_gl=rnorm(99), 
-  rsq_prs=0.06, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  rsq_zl=0.19, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=5/1000, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
-  b_lr0=sqrt(0.1), 
-  b_c0l=sqrt(0.01), 
-  gr_maf=0.5, 
-  rsq_gr0=0.1,   # this is a pqtl - often large effect size
-  rsq_gc0=0.1,   # this is a pqtl - often large effect size 
-  b_u1r1=0.1, 
-  b_u1l=0.1, 
-  b_u2c1=0.1, 
-  b_u2l=0.1, 
-  b_dr1=0.1, 
-  b_dc1=0.1, 
-  b_c0c1=0.1, 
-  b_r0r1=0.1, 
-  b_u2c0=0.1, 
-  b_gcc0=0.1, 
-  b_lc0=0.1, 
-  b_u1r0=0.1, 
-  b_u1d=0.1, 
-  b_u2d=0.1)
+return(pscore_df) 
+}) 
 
-system.time(output <- lapply(replication, dgmodel)) 
-```
-
-Apply this to sun
-```{r}
-dgmodel <- function(nid=3301, 
-  nsnp=99, 
-  gc_maf=runif(99, 0.05, 0.95), #99 SNPs and no rare variants
-  b_gl=rnorm(99), 
-  rsq_prs=0.06, #h-squared value https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  rsq_zl=0.19, #to total 0.25 of total H-squared https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4667278/
-  d_prev=5/1000, #~5% http://rarecarenet.istitutotumori.mi.it/analysis.php
-  b_lr0=sqrt(0.1), 
-  b_c0l=sqrt(0.01), 
-  gr_maf=0.5, 
-  rsq_gr0=0.1,   
-  rsq_gc0=0.1,   
-  b_u1r1=0.1, 
-  b_u1l=0.1, 
-  b_u2c1=0.1, 
-  b_u2l=0.1, 
-  b_dr1=0.1, 
-  b_dc1=0.1, 
-  b_c0c1=0.1, 
-  b_r0r1=0.1, 
-  b_u2c0=0.1, 
-  b_gcc0=0.1, 
-  b_lc0=0.1, 
-  b_u1r0=0.1, 
-  b_u1d=0.1, 
-  b_u2d=0.1)
-{
-  u1 <- rnorm(nid) 
-  u2 <- rnorm(nid) 
-  gc <- make_geno(nid, nsnp, gc_maf) 
-  gr <- rbinom(nid, 2, gr_maf) 
-  c0 <- scale(gc[,1]) * b_gcc0 + u2 * b_u2c0 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lc0^2-b_u2c0^2)) 
-  rsq_prs <- rsq_prs - (0.1)^2 
-  prs <- scale(gc %*% b_gl) 
-  prs_w <- scale(gc[,-1] %*% b_gl[-1]) 
-  z <- rnorm(nid) 
-  l <- prs_w * sqrt(rsq_prs) + z * sqrt(rsq_zl) + c0 * b_c0l + u1 * b_u1l + u2 * b_u2l 
-  r0 <- scale(gr) * sqrt(rsq_gr0) + l * b_lr0 + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1-rsq_gr0-b_lr0^2-b_u1r0^2)) 
-  prob_l <- simulateGP::gx_to_gp(gx=scale(l), h2x=rsq_prs + rsq_zl + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) 
-  d <- rbinom(nid, 1, prob_l)
-  d <- abs(d-1) 
-  c1 <- scale(gc[,1]) * 0.1 + u2 * b_u2c1 + c0 *b_c0c1 + d * b_dc1 + rnorm(nid, sd=sqrt(1-(0.1)^2 - b_u2c1^2- b_c0c1^2)) 
-  r1 <- scale(gr) * sqrt(rsq_gr0) + r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 + rnorm(nid, sd=sqrt(1-rsq_gc0-b_lr0^2-b_u1r1^2)) 
-  phen <- tibble(
-    u1, u2, r0, r1, c0, c1, prs, prs_w, l, prob_l, d
-  )
-  return(list(geno=gc, phen=phen)) 
+pscore <- data.table()
+for (i in 1:nrow(param)){
+    row <- sims[[i]]
+    pscore <- rbind(pscore, row)
 }
-system.time(results <- lapply(replication, dgmodel)) #time without paralleisation
-system.time(results <- mclapply(replication, dgmodel, mc.cores = numCores)) #time with addition of parallelisation
 ```
-
