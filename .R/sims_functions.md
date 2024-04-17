@@ -370,15 +370,13 @@ rev_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase){
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
     mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
     return(mr_res)
   }else{
     mr_res <- tribble(
       ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, 
-      " ", " ", " ", " "," "," ", " ", " ", " ",
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
     )
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
-    return()
+    return(mr_res)
   }}
 
 ## p2 revmr
@@ -411,15 +409,13 @@ rev_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase){
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
     mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
     return(mr_res)
   }else{
     mr_res <- tribble(
       ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval, 
-      " ", " ", " ", " "," "," ", " ", " ", " ",
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
     )
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
-    return()
+    return(mr_res)
   }}
 
 ## p3 revmr
@@ -453,15 +449,13 @@ rev_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase){
   print(prs_snp)
   if (dim(prs_snp)[1]>0){
     mr_res <- mr(prs_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
     return(mr_res)
   }else{
     mr_res <- tribble(
       ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval,
-      " ", " ", " ", " "," "," ", " ", " ", " ",
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
     )
-    all_mr_res <- mr(harmonise, metho=c("mr_ivw", "mr_wald_ratio"))
-    return()
+    return(mr_res)
   }}
 ```
 
@@ -497,8 +491,16 @@ fwd_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase){
   gwasy <- gwas(y,g, logistic = TRUE)
   harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
   p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
-  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-  return(mr_res)}
+  if (dim(p_snp)[1]>0){
+    mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval,
+     0, 0, 0, 0, 0, 0, 0, 0, 0,
+    )
+    return(mr_res)
+  }}
 
 ##p2 fwd
 
@@ -528,8 +530,16 @@ fwd_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase){
   gwasy <- gwas(y,g, logistic = TRUE)
   harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
   p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
-  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-  return(mr_res)}
+  if (dim(p_snp)[1]>0){
+    mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
+    )
+    return(mr_res)
+  }}
 
 ##p3 fwd
 
@@ -559,8 +569,16 @@ fwd_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase){
   gwasy <- gwas(y,g, logistic = TRUE)
   harmonise <- merge_exp_out(gwasx, gwasy, "X", "Y")
   p_snp <- subset(harmonise, harmonise$pval.exposure<5e-8)
-  mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio"))
-  return(mr_res)}
+  if (dim(p_snp)[1]>0){
+    mr_res <- mr(p_snp, metho=c("mr_ivw", "mr_wald_ratio")) 
+    return(mr_res)
+  }else{
+    mr_res <- tribble(
+      ~id.exposure, ~id.outcome, ~outcome, ~exposure, ~method, ~nsnp,~b, ~se, ~pval,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
+    )
+    return(mr_res)
+  }}
 ```
 
 CC for P1, P2 and P3 (causal, non-causal, consequence of disease
@@ -597,7 +615,22 @@ disease prediction
 
 ``` r
 score_model <- function(betas, training_dat, nid){
-score <- sum(betas$b)
-model <- glm(training_dat$phen$d ~ score)
+score <- betas$b[1]*training_dat$phen$c0 + betas$b[2]*training_dat$phen$r0 + betas$b[3]*training_dat$phen$x1
+lm_model <- lm(training_dat$phen$d ~ score)
+model <- coef(lm_model)[2]
+return(model)
+}
+```
+
+Input betas from testing data into training data to output model in
+disease prediction - using data from linear model not MR
+
+``` r
+score_model_cc <- function(betas, training_dat, nid){
+betas$bhat <- as.numeric(betas$bhat)
+score <- betas$bhat[1]*training_dat$phen$c0 + betas$bhat[2]*training_dat$phen$r0 + betas$bhat[3]*training_dat$phen$x1
+lm_model <- lm(training_dat$phen$d ~ score)
+model <- coef(lm_model)[2]
+return(model)
 }
 ```

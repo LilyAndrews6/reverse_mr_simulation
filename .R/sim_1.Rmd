@@ -18,25 +18,25 @@ library(ggplot2)
 
 Simulation 1
 
-Data generating model using results from INTERVAL pQTL dataset (https://www.nature.com/articles/s41586-018-0175-2) and glioma GWAS (https://www.nature.com/articles/ng.3823):
+Data generating model using results from UK Biobank pQTL dataset (https://www.nature.com/articles/s41586-023-06592-6) and glioma GWAS (https://www.nature.com/articles/ng.3823):
 ```{r}
 rmarkdown::render("sims_functions.Rmd")
 
 param  <- expand.grid(
   n_prot=34557,
-  af = 0.2,
+  af = c(0.2,0.4),
   b=0.0879946, 
   rsq_lr0=0.0052923,
   nestedcasecontrol=2000,
   x1=0.1,
-  sims=1
+  sims=1:2
 )
 
 sims <- lapply(1:nrow(param), function(i){
   
 print(param[i,])
-  
-testing_dat <- dgmodel(nid=60000, 
+print("before training dat")
+training_dat <- dgmodel(nid=60000, 
 b_gcc0=0.13,
 b_u2c0=0,
 gr_maf=param$af[i],
@@ -58,27 +58,46 @@ b_r0r1=1,
 b_u1r1=0,
 b_dr1=0,
 b_dx1=param$x1[i]) 
+print("after training dat")
 
-p1_rev <- rev_mr_prot_p1(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-p2_rev <- rev_mr_prot_p2(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-p3_rev <- rev_mr_prot_p3(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-pval_rev <- rbind(p1_rev, p2_rev, p3_rev)
-betas_rev <- subset(pval_rev, pval_rev$pval<0.05)
+p1_rev <- rev_mr_prot_p1(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_rev <- rev_mr_prot_p2(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_rev <- rev_mr_prot_p3(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+betas_rev <- rbind(p1_rev, p2_rev, p3_rev)
+betas_rev<-as.data.frame(betas_rev)
+for (row in 1:nrow(betas_rev)){
+  if(betas_rev$pval[row]<0.05){
+   
+  } else{
+    betas_rev[row,] <- list(0, 0, 0, 0, 0, 0, 0, 0, 0)
+}}
 
-p1_fwd <- fwd_mr_prot_p1(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-p2_fwd <- fwd_mr_prot_p2(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-p3_fwd <- fwd_mr_prot_p3(dat=testing_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
-pval_fwd <- rbind(p1_fwd, p2_fwd, p3_fwd)
-betas_fwd <- subset(pval_fwd, pval_fwd$pval<0.05)
+p1_fwd <- fwd_mr_prot_p1(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p2_fwd <- fwd_mr_prot_p2(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+p3_fwd <- fwd_mr_prot_p3(dat=training_dat, n_protein_gwas=param$n_prot[i], ncontrol=18190, ncase=12496)
+betas_fwd <- rbind(p1_fwd, p2_fwd, p3_fwd)
+betas_fwd<-as.data.frame(betas_fwd)
+for (row in 1:nrow(betas_fwd)){
+  if(betas_fwd$pval[row]<0.05){
+   
+  } else{
+    betas_fwd[row,] <- list(0, 0, 0, 0, 0, 0, 0, 0, 0)
+}}
 
-p1_cc <- nested_case_control_p1(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
-p2_cc <- nested_case_control_p2(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
-p3_cc <- nested_case_control_p3(dat=testing_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p1_cc <- nested_case_control_p1(dat=training_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p2_cc <- nested_case_control_p2(dat=training_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
+p3_cc <- nested_case_control_p3(dat=training_dat, nestedcase=param$nestedcasecontrol[i], nestedcontrol=param$nestedcasecontrol[i])
 cc <- rbind(p1_cc, p2_cc, p3_cc)
-cc<- as.data.frame(cc)
-betas_cc <- subset(cc, cc$pval<0.05)
+betas_cc<- as.data.frame(cc)
+for (row in 1:nrow(betas_cc)){
+  if(betas_cc$pval[row]<0.05){
+  }
+  else{
+    betas_cc[row,] <- list(0, 0, 0, 0, 0, 0)
+}}
 
-training_dat <- dgmodel(nid=60000, 
+print("made betas")
+testing_dat <- dgmodel(nid=60000, 
 b_gcc0=0.13,
 b_u2c0=0,
 gr_maf=param$af[i],
@@ -101,12 +120,13 @@ b_u1r1=0,
 b_dr1=0,
 b_dx1=param$x1[i])
 
-protein_model_rev <- score_model(betas_rev, testing_dat, nid)
-protein_model_fwd <- score_model(betas_fwd, testing_dat, nid)
-protein_model_cc <- score_model(betas_cc, testing_dat, nid)
-
+print("made tresting dat")
+protein_model_rev <- score_model(betas=betas_rev, testing_dat, nid)
+protein_model_fwd <- score_model(betas=betas_fwd, testing_dat, nid)
+protein_model_cc <- score_model_cc(betas=betas_cc, testing_dat, nid)
+print("made protein models")
 pscore_df <- data.frame(rev = protein_model_rev, fwd = protein_model_fwd, cc = protein_model_cc)
-
+print(pscore_df)
 return(pscore_df) 
 }) 
 
