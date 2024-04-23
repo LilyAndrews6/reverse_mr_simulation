@@ -597,11 +597,11 @@ nested_case_control_p3 <- function(dat, nestedcase, nestedcontrol){
   return(log_nested)} #fast_cc=fast_nested
 ```
 
-Input betas from testing data into training data to output model in disease prediction
+Input betas from training data into testing data to output model in disease prediction
 ```{r}
-score_model <- function(betas, training_dat, nid){
-score <- betas$b[1]*training_dat$phen$c0 + betas$b[2]*training_dat$phen$r0 + betas$b[3]*training_dat$phen$x1
-lm_model <- lm(training_dat$phen$d ~ score)
+score_model <- function(betas, testing_dat, nid){
+score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+lm_model <- lm(testing_dat$phen$d ~ score)
 model <- coef(lm_model)[2]
 return(model)
 }
@@ -609,10 +609,10 @@ return(model)
 
 Input betas from testing data into training data to output model in disease prediction - using data from linear model not MR
 ```{r}
-score_model_cc <- function(betas, training_dat, nid){
+score_model_cc <- function(betas, testing_dat, nid){
 betas$bhat <- as.numeric(betas$bhat)
-score <- betas$bhat[1]*training_dat$phen$c0 + betas$bhat[2]*training_dat$phen$r0 + betas$bhat[3]*training_dat$phen$x1
-lm_model <- lm(training_dat$phen$d ~ score)
+score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x1
+lm_model <- lm(testing_dat$phen$d ~ score)
 model <- coef(lm_model)[2]
 return(model)
 }

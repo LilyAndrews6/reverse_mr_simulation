@@ -14,6 +14,7 @@ library(TwoSampleMR)
 library(parallel)
 library(data.table)
 library(ggplot2)
+library(pROC)
 ```
 
 Simulation 1
@@ -23,13 +24,13 @@ Data generating model using results from UK Biobank pQTL dataset (https://www.na
 rmarkdown::render("sims_functions.Rmd")
 
 param  <- expand.grid(
-  n_prot=34557,
-  af = c(0.2,0.4),
-  b=0.0879946, 
-  rsq_lr0=0.0052923,
-  nestedcasecontrol=2000,
+  n_prot=c(33436, 33187),
+  af = seq(0.2, 0.4, by=0.1),
+  b=c(0.0497226, 0.0447559), 
+  rsq_lr0=c(0.0016068, 0.0013336),
+  nestedcasecontrol=c(113, 487,593),
   x1=0.1,
-  sims=1:2
+  sims=1
 )
 
 sims <- lapply(1:nrow(param), function(i){
@@ -120,19 +121,122 @@ b_u1r1=0,
 b_dr1=0,
 b_dx1=param$x1[i])
 
-print("made tresting dat")
+print("made testing dat")
 protein_model_rev <- score_model(betas=betas_rev, testing_dat, nid)
 protein_model_fwd <- score_model(betas=betas_fwd, testing_dat, nid)
 protein_model_cc <- score_model_cc(betas=betas_cc, testing_dat, nid)
 print("made protein models")
 pscore_df <- data.frame(rev = protein_model_rev, fwd = protein_model_fwd, cc = protein_model_cc)
 print(pscore_df)
-return(pscore_df) 
+
+roc <- data.table(rev="NA", fwd="NA", cc="NA")
+##REVERSE
+betas <- betas_rev
+if(sum(unlist(betas$b))!=0){
+testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ testing_dat$score, family="binomial")
+
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+rev_roc <- pROC::auc(roc_object)
+roc$rev <- rev_roc} else{}
+
+##FORWARD
+betas <- betas_fwd
+if(sum(unlist(betas$b))!=0){
+testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ testing_dat$score, family="binomial")
+
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+fwd_roc <- pROC::auc(roc_object)
+roc$fwd <- fwd_roc} else{}
+
+## CASE CONTROLS
+betas <- betas_cc
+print(betas)
+if(sum(unlist(betas$bhat))!=0){
+betas$bhat <- as.numeric(betas$bhat)
+testing_dat$score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ testing_dat$score, family="binomial")
+
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+cc_roc <- pROC::auc(roc_object)
+roc$cc <- cc_roc} else{}
+return(c(pscore_df, roc)) 
 }) 
 
 pscore <- data.table()
 for (i in 1:nrow(param)){
     row <- sims[[i]]
+    row$sim <- i
     pscore <- rbind(pscore, row)
 }
+length(pscore$rev[complete.cases(pscore$rev)==TRUE])
+pscore$rev[complete.cases(pscore$rev)==TRUE]
+
+##  compare cc
+ind <- param$nestedcasecontrol==113
+cc_low <- pscore[ind]
+cc_low_score <- sum(cc_low$rev[complete.cases(cc_low$rev)==TRUE])+sum(cc_low$fwd[complete.cases(cc_low$fwd)==TRUE])+sum(cc_low$cc[complete.cases(cc_low$cc)==TRUE])
+ind <- param$nestedcasecontrol==593
+cc_high <- pscore[ind]
+cc_high_score <- sum(cc_high$rev[complete.cases(cc_high$rev)==TRUE])+sum(cc_high$fwd[complete.cases(cc_high$fwd)==TRUE])+sum(cc_high$cc[complete.cases(cc_high$cc)==TRUE])
+
+##compare entered protein r-squared
+ind <-param$rsq_lr0==0.0016068 & param$n_prot==33436
+ukbb_1 <- pscore[ind]
+ind <- param$rsq_lr0==0.0013336 & param$n_prot==33187
+ukbb_2 <- pscore[ind]
+
+
 ```
+
+
+#area under curve
+```{r}
+##REVERSE
+betas <- betas_rev
+if(sum(unlist(betas$b))!=0){
+training_dat$score <- betas$b[1]*training_dat$phen$c0 + betas$b[2]*training_dat$phen$r0 + betas$b[3]*training_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ score)
+
+testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+print(pROC::auc(roc_object))
+plot(roc_object)} else{}
+
+##FORWARD
+betas <- betas_fwd
+if(sum(unlist(betas$b))!=0){
+training_dat$score <- betas$b[1]*training_dat$phen$c0 + betas$b[2]*training_dat$phen$r0 + betas$b[3]*training_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ score)
+
+testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+print(pROC::auc(roc_object))
+plot(roc_object)} else{}
+
+## CASE CONTROLS
+betas <- betas_cc
+if(sum(unlist(betas$bhat))!=0){
+training_dat$score <- betas$bhat[1]*training_dat$phen$c0 + betas$bhat[2]*training_dat$phen$r0 + betas$bhat[3]*training_dat$phen$x1
+glm_model_train <- glm(training_dat$phen$d ~ score)
+
+
+testing_dat$score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x1
+prediction <- predict(glm_model_train, testing_dat, type="response")
+
+roc_object <- roc(testing_dat$phen$d, prediction)
+print(pROC::auc(roc_object))
+plot(roc_object)} else{}
+```
+
