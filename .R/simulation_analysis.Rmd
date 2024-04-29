@@ -1,0 +1,13 @@
+---
+title: "simulation_analysis"
+output: github_document
+date: "2024-04-24"
+---
+Run 1
+```{r}
+source("simulation_run1.R", echo = T, prompt.echo = "", spaced = F)
+
+
+
+```
+

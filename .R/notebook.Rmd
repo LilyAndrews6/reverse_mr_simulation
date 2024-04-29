@@ -1,0 +1,47 @@
+---
+title: "notebook"
+output: github_document
+date: "2024-04-24"
+---
+Check data generating model
+```{r}
+source("dgmodel.R")
+dat <- dgmodel(
+    nid=60000, 
+    b_gcc0=0.13,
+    b_u2c0=0,
+    gr_maf=0.2,
+    nsnp=99,
+    h2_known=0.2,
+    h2_unknown=0.19,
+    b_c0l=0,
+    b_u2l=0,
+    rsq_gr0=0,
+    rsq_lr0=0.0016068,
+    b_u1r0=0,
+    b_u1d=0,
+    b_u2d=0,
+    d_prev=3/10,
+    b_c0c1=1,
+    b_u2c1=0,
+    b_dc1=1,
+    b_r0r1=1,
+    b_u1r1=0,
+    b_dr1=0,
+    b_dx1=0.1
+    ) 
+print(dat)
+```
+
+Check output of dgmodel - each is expected to have a variance of 1 except prs, l as these are scaled and prob_l and d
+```{r}
+source("estimation.R")
+dgmodel_check(dat)
+```
+Check associations between parameters
+```{r}
+source("estimation.R")
+overview <- dgmodel_analysis(dat, ncase=2000, ncontrol=2000, protein_gwas=10000, prot="prot", iteration=1)
+print(overview)
+```
+
