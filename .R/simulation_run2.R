@@ -13,18 +13,18 @@ rsq_lr0<-c(0.0016068, 0.0013336)
 real_dat <- data.frame(n_prot, b, rsq_lr0)
 
 param  <- expand.grid(
-  af = seq(0.2, 0.4, by=0.1),
-  nestedcasecontrol=c(113, 487,593), # what sample size of cc is needed to match revmr results
-  model = 1:2,
-  x1=0.1, # see effect of consequence of disease - increase and see if prediction/auc decreases
-  sims=1:3, 
-  uc= seq(0, 0.4, by=0.1) #see if uc improves prediction of disease
+  af = 0.2,
+  nestedcasecontrol=c(113, 487,593),
+  model = 1,
+  x1=1,
+  sims=1,
+  uc=c(0.1,0.4, 0.45)
 )
 
 source("dgmodel.R")
 source("estimation.R")
 
-sims <- lapply(1:nrow(param), function(i)
+sims_2 <- lapply(1:nrow(param), function(i)
 {
   #print(param[i,])
   training_dat <- dgmodel(
@@ -49,7 +49,7 @@ sims <- lapply(1:nrow(param), function(i)
     b_u1r1=param$uc[i],
     b_dr1=0, #no change for r1 on disease
     b_dx1=param$x1[i]
-    ) 
+  ) 
   
   p1_rev <- rev_mr_prot_p1(dat=training_dat, n_protein_gwas=real_dat$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
   p2_rev <- rev_mr_prot_p2(dat=training_dat, n_protein_gwas=real_dat$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
@@ -91,8 +91,8 @@ sims <- lapply(1:nrow(param), function(i)
     {
       betas_fwd[row,] <- list(0, 0, 0, 0, 0, 0, 0, 0, 0)
     }}
-    for (row in 1:nrow(betas_fwd))
-    {
+  for (row in 1:nrow(betas_fwd))
+  {
     if(betas_fwd$method[row]!=0)
     {
       fwd_prot <- rbind(fwd_prot, paste0("prot", row))
@@ -149,24 +149,24 @@ sims <- lapply(1:nrow(param), function(i)
     b_u1r1=param$uc[i],
     b_dr1=0, #no change for r1 on disease
     b_dx1=param$x1[i]
-    ) 
+  ) 
   if(sum(unlist(betas_rev$b))!=0)
   {
-  protein_model_rev <- score_model(betas=betas_rev, testing_dat, nid)
+    protein_model_rev <- score_model(betas=betas_rev, testing_dat, nid)
   } else
   {
     protein_model_rev <- list(0, 0, 0, 0)
   }
   if(sum(unlist(betas_fwd$b))!=0)
   {
-  protein_model_fwd <- score_model(betas=betas_fwd, testing_dat, nid)
+    protein_model_fwd <- score_model(betas=betas_fwd, testing_dat, nid)
   } else
   {
     protein_model_fwd <- list(0, 0, 0, 0)
   }
   if(sum(unlist(betas_cc$bhat))!=0)
   {
-  protein_model_cc <- score_model_cc(betas=betas_cc, testing_dat, nid)
+    protein_model_cc <- score_model_cc(betas=betas_cc, testing_dat, nid)
   } else
   {
     protein_model_cc <- list(0, 0, 0, 0)
@@ -228,8 +228,9 @@ sims <- lapply(1:nrow(param), function(i)
     n_proteins=c(nrow(rev_prot), nrow(fwd_prot), nrow(cc_prot)),
     protein_type=c(str_flatten(rev_prot[1:nrow(rev_prot),], collapse = " "), str_flatten(fwd_prot[1:nrow(fwd_prot),], collapse = " "), str_flatten(cc_prot[1:nrow(cc_prot),], collapse = " ")) 
   )
- print(out)
+  print(out)
   return(out) 
 }) %>% bind_rows()
 
-save(sims, file = "sims_run1.RData")
+
+save(sims_2, file = "sims_run2.RData")

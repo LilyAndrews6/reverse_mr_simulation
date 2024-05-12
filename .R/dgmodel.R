@@ -18,8 +18,7 @@ dgmodel <- function(
   rsq_gr0,
   rsq_lr0,
   b_u1r0,
-  b_u1d,
-  b_u2d,
+  b_u1l,
   d_prev,
   b_c0c1,
   b_u2c1,
@@ -64,7 +63,7 @@ dgmodel <- function(
   
   r0 <- scale(gr) * sqrt(rsq_gr0) + scale(l) * sqrt(rsq_lr0) + u1 * b_u1r0 + rnorm(nid, sd=sqrt(1 - rsq_gr0 - rsq_lr0 - b_u1r0^2)) #create non causal variable
   
-  prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1d^2 + b_u2d^2, prev = d_prev) #generating the probability of liability to disease
+  prob_l <- gx_to_gp(gx=scale(l), h2x=rsq_prs + b_c0l^2 + b_u1l^2 + b_u2l^2, prev = d_prev) #generating the probability of liability to disease
   
   d <- rbinom(nid, 1, prob_l) #generate disease in individuals based on liability
   

@@ -8,13 +8,13 @@ Check data generating model
 source("dgmodel.R")
 dat <- dgmodel(
     nid=60000, 
-    b_gcc0=0.13,
+    b_gcc0=0.13, #need to sort this - should be 0.26 or 0.13
     b_u2c0=0,
     gr_maf=0.2,
     nsnp=99,
     h2_known=0.2,
     h2_unknown=0.19,
-    b_c0l=0,
+    b_c0l=0.13,
     b_u2l=0,
     rsq_gr0=0,
     rsq_lr0=0.0016068,
@@ -37,11 +37,45 @@ Check output of dgmodel - each is expected to have a variance of 1 except prs, l
 ```{r}
 source("estimation.R")
 dgmodel_check(dat)
+dgmodel_analysis(dat, ncontrol=18190, ncase=12496, protein_gwas=33436, prot="bcan", iteration=1)
+
+logistic_assoc(x=phen$r0, y=phen$d) %>% as_tibble() %>% mutate(x="d", y="r0")
+all_assoc(dat)
 ```
+
 Check associations between parameters
 ```{r}
 source("estimation.R")
 overview <- dgmodel_analysis(dat, ncase=2000, ncontrol=2000, protein_gwas=10000, prot="prot", iteration=1)
 print(overview)
 ```
+Run simulation - protein 1 causal, protein 2 non-causal, protein 3 consequence of disease
+```{r}
+source("simulation_run1.R")
+load(file = "sims_run1.RData")
+sims %>%
 
+    group_by(af, n_cc, rsq_lr0, x1, method) %>%
+
+    summarise(auc = mean(auc))
+
+sims %>%
+
+    group_by(af, n_cc, rsq_lr0, x1, method) %>%
+
+    summarise(auc = mean(auc)) %>%
+
+    {
+
+        ggplot(., aes(x=n_cc, y=auc, color=method)) +
+
+        geom_point() + geom_smooth()
+
+    }
+```
+
+
+```{r}
+source("simulation_run2.R")
+load(file = "sims_run2.RData")
+```
