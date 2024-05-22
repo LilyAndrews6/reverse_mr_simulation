@@ -39,7 +39,7 @@ sims <- lapply(1:nrow(param), function(i)
     b_c0l=0.13,
     b_u2l=param$uc[i],
     rsq_gr0=0.1, ##check this
-    rsq_lr0=glioma_revmr_rsq$rsq_lr0[param$model[i]],
+    rsq_lr0=glioma_revmr_rsq$rsq[param$model[i]],
     b_u1r0=param$uc[i],
     b_u1l=param$uc[i],
     d_prev=3/10,
@@ -53,9 +53,9 @@ sims <- lapply(1:nrow(param), function(i)
     b_x0x1=0
     ) 
   
-  p1_rev <- rev_mr_prot_p1(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
-  p2_rev <- rev_mr_prot_p2(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
-  p3_rev <- rev_mr_prot_p3(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
+  p1_rev <- rev_mr_prot_p1(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
+  p2_rev <- rev_mr_prot_p2(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
+  p3_rev <- rev_mr_prot_p3(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
   betas_rev <- rbind(p1_rev, p2_rev, p3_rev)
   betas_rev<-as.data.frame(betas_rev)
   rev_prot <- data.frame()
@@ -78,9 +78,9 @@ sims <- lapply(1:nrow(param), function(i)
     else
     {
     }}
-  p1_fwd <- fwd_mr_prot_p1(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
-  p2_fwd <- fwd_mr_prot_p2(dat=training_dat, n_protein_gwas=rglioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
-  p3_fwd <- fwd_mr_prot_p3(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
+  p1_fwd <- fwd_mr_prot_p1(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
+  p2_fwd <- fwd_mr_prot_p2(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
+  p3_fwd <- fwd_mr_prot_p3(dat=training_dat, n_protein_gwas=glioma_revmr_rsq$n[param$model[i]], ncontrol=18190, ncase=12496)
   betas_fwd <- rbind(p1_fwd, p2_fwd, p3_fwd)
   betas_fwd<-as.data.frame(betas_fwd)
   fwd_prot <- data.frame()
@@ -140,7 +140,7 @@ sims <- lapply(1:nrow(param), function(i)
     b_c0l=0.13,
     b_u2l=param$uc[i],
     rsq_gr0=0.1, ##check this
-    rsq_lr0=glioma_revmr_rsq$rsq_lr0[param$model[i]],
+    rsq_lr0=glioma_revmr_rsq$rsq[param$model[i]],
     b_u1r0=param$uc[i],
     b_u1l=param$uc[i],
     d_prev=3/10,
@@ -219,8 +219,8 @@ sims <- lapply(1:nrow(param), function(i)
   out <- tibble(
     af=rep(param$af[i], 3),
     n_cc=rep(param$nestedcasecontrol[i],3),
-    nid_prot=rep(glioma_revmr_rsq$n_prot[param$model[i]],3),
-    rsq_lr0=rep(glioma_revmr_rsq$rsq_lr0[param$model[i]],3),
+    nid_prot=rep(glioma_revmr_rsq$n[param$model[i]],3),
+    rsq_lr0=rep(glioma_revmr_rsq$rsq[param$model[i]],3),
     x1=rep(param$x1[i],3),
     sim=rep(param$sims[i],3),
     uc=rep(param$uc[i],3),
