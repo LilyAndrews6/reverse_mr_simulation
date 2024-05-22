@@ -55,19 +55,45 @@ source("simulation_run1.R")
 load(file = "sims_run1.RData")
 sims %>%
 
-    group_by(af, n_cc, rsq_lr0, x1, method) %>%
+    group_by(af, n_cc, rsq_lr0, x1, method, uc) %>%
 
     summarise(auc = mean(auc))
 
 sims %>%
 
-    group_by(af, n_cc, rsq_lr0, x1, method) %>%
+    group_by(af, n_cc, rsq_lr0, x1, method, uc) %>%
 
     summarise(auc = mean(auc)) %>%
 
     {
 
         ggplot(., aes(x=n_cc, y=auc, color=method)) +
+
+        geom_point() + geom_smooth()
+
+    }
+sims %>%
+
+    group_by(af, n_cc, rsq_lr0, x1, method, uc) %>%
+
+    summarise(auc = mean(auc)) %>%
+
+    {
+
+        ggplot(., aes(x=uc, y=auc, color=method)) +
+
+        geom_point() + geom_smooth()
+
+    }
+sims %>%
+
+    group_by(af, n_cc, rsq_lr0, x1, method, uc) %>%
+
+    summarise(auc = mean(auc)) %>%
+
+    {
+
+        ggplot(., aes(x=x1, y=auc, color=method)) +
 
         geom_point() + geom_smooth()
 

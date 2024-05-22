@@ -26,7 +26,8 @@ dgmodel <- function(
   b_r0r1,
   b_u1r1,
   b_dr1,
-  b_dx1
+  b_dx1, 
+  b_x0x1
 )  #assuming variance of genetic liability is 1
 {
   u1 <- rnorm(nid) #normal distribution of unmeasured confounder
@@ -41,6 +42,8 @@ dgmodel <- function(
   gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) #create genotype matrix for causal variant
   
   c0 <- gc * b_gcc0 + u2*b_u2c0 + rnorm(nid, sd=sqrt(1-b_gcc0^2-b_u2c0^2))
+  
+  x0 <- rnorm(nid) #consequence of disease protein pre-disease
   
   #gr_maf <- runif(nsnp, 0.01, 0.99)
   gprs_maf <- rep(gr_maf, nsnp) #create minor allele frequency for each snp
@@ -71,11 +74,11 @@ dgmodel <- function(
   
   r1 <- r0 * b_r0r1 + u1 * b_u1r1 + d * b_dr1 #generate non-causal variant post disease
   
-  x1 <- d * b_dx1 + rnorm(nid, sd=sqrt(1 - b_dx1^2*var(d)))  #protein as a consequence of disease - error needs addition of variance of disease
+  x1 <- x0 * b_x0x1 + d * b_dx1 + rnorm(nid, sd=sqrt(1 - b_dx1^2*var(d)))  #protein as a consequence of disease - error needs addition of variance of disease
   
   join_mat <- cbind(gprs, gr, gc) #combine genotypes
   
   phen <- tibble(
-    u1, u2, r0, r1, c0, c1, prs, l, prob_l, d, x1
+    u1, u2, r0, r1, c0, c1, prs, l, prob_l, d, x1, x0
   )  
 return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat, af=gprs_maf))}

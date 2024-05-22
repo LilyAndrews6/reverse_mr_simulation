@@ -270,7 +270,7 @@ rev_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
   geno_mat <- data.matrix(genosubset)
   phenosubset <- dat$phen[ind, ]
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  y <- phenosubset$x1 
+  y <- phenosubset$x0 
   g <- geno_mat
   gwasy <- gwas(y,g, logistic = FALSE)
   
@@ -390,7 +390,7 @@ fwd_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
   geno_mat <- data.matrix(genosubset)
   phenosubset <- dat$phen[ind, ]
   stopifnot(nrow(genosubset) == nrow(phenosubset))
-  x <- phenosubset$x1
+  x <- phenosubset$x0
   g <- geno_mat
   gwasx <- gwas(x,g, logistic = FALSE)
   
@@ -445,14 +445,14 @@ nested_case_control_p3 <- function(dat, nestedcase, nestedcontrol)
 {
   phen <- dat$phen
   nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
-  log_nested<- logistic_assoc(y=nested$d, x=nested$x1) #case control estimate 
+  log_nested<- logistic_assoc(y=nested$d, x=nested$x0) #case control estimate 
   return(log_nested)
 } 
 
 ##create protein score and create model
 score_model <- function(betas, testing_dat, nid)
 {
-  score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+  score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x0
   lm_model <- glm(testing_dat$phen$d ~ score, family = "binomial")
   model <- coef(summary(lm_model))[2,]
   return(model)
@@ -463,7 +463,7 @@ score_model <- function(betas, testing_dat, nid)
 score_model_cc <- function(betas, testing_dat, nid)
 {
   betas$bhat <- as.numeric(betas$bhat)
-  score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x1
+  score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x0
   lm_model <- glm(testing_dat$phen$d ~ score, family = "binomial")
   model <- coef(summary(lm_model))[2,]
   return(model)

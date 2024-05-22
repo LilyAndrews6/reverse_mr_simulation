@@ -6,19 +6,20 @@ library(parallel)
 library(data.table)
 library(ggplot2)
 library(pROC)
+library(stringr)
 
-n_prot<-c(33436, 33187)
-b<-c(0.0497226, 0.0447559)
-rsq_lr0<-c(0.0016068, 0.0013336)
+n_prot<-c(33436, 33187, 3301, 35362)
+b<-c(0.0497226, 0.0447559, 0.0879946, -0.0354690)
+rsq_lr0<-c(0.0016068, 0.0013336, 0.0052923, 0.0008731)
 real_dat <- data.frame(n_prot, b, rsq_lr0)
 
 param  <- expand.grid(
   af = 0.2,
-  nestedcasecontrol=c(113, 487,593),
-  model = 1,
-  x1=1,
+  nestedcasecontrol=487,
+  model = 1:nrow(real_dat),
+  x1=seq(0, 0.4, by=0.1),
   sims=1,
-  uc=c(0.1,0.4, 0.45)
+  uc=c(0.1, 0.4)
 )
 
 source("dgmodel.R")
@@ -48,7 +49,8 @@ sims_2 <- lapply(1:nrow(param), function(i)
     b_r0r1=1,
     b_u1r1=param$uc[i],
     b_dr1=0, #no change for r1 on disease
-    b_dx1=param$x1[i]
+    b_dx1=param$x1[i],
+    b_x0x1=0
   ) 
   
   p1_rev <- rev_mr_prot_p1(dat=training_dat, n_protein_gwas=real_dat$n_prot[param$model[i]], ncontrol=18190, ncase=12496)
@@ -148,7 +150,8 @@ sims_2 <- lapply(1:nrow(param), function(i)
     b_r0r1=1,
     b_u1r1=param$uc[i],
     b_dr1=0, #no change for r1 on disease
-    b_dx1=param$x1[i]
+    b_dx1=param$x1[i],
+    b_x0x1=0
   ) 
   if(sum(unlist(betas_rev$b))!=0)
   {
@@ -180,7 +183,7 @@ sims_2 <- lapply(1:nrow(param), function(i)
   betas <- betas_rev
   if(sum(unlist(betas$b))!=0)
   {
-    testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+    testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x0
     roc_object <- roc(response=testing_dat$phen$d, predictor=testing_dat$score)
     rev_roc <- pROC::auc(roc_object)
     roc$rev <- rev_roc
@@ -192,7 +195,7 @@ sims_2 <- lapply(1:nrow(param), function(i)
   betas <- betas_fwd
   if(sum(unlist(betas$b))!=0)
   {
-    testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x1
+    testing_dat$score <- betas$b[1]*testing_dat$phen$c0 + betas$b[2]*testing_dat$phen$r0 + betas$b[3]*testing_dat$phen$x0
     roc_object <- roc(response=testing_dat$phen$d, predictor=testing_dat$score)
     fwd_roc <- pROC::auc(roc_object)
     roc$fwd <- fwd_roc
@@ -206,7 +209,7 @@ sims_2 <- lapply(1:nrow(param), function(i)
   if(sum(unlist(betas$bhat))!=0)
   {
     betas$bhat <- as.numeric(betas$bhat)
-    testing_dat$score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 +   betas$bhat[3]*testing_dat$phen$x1
+    testing_dat$score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 +   betas$bhat[3]*testing_dat$phen$x0
     roc_object <- roc(response=testing_dat$phen$d, predictor=testing_dat$score)
     cc_roc <- pROC::auc(roc_object)
     roc$cc <- cc_roc} else
@@ -220,6 +223,7 @@ sims_2 <- lapply(1:nrow(param), function(i)
     rsq_lr0=rep(real_dat$rsq_lr0[param$model[i]],3),
     x1=rep(param$x1[i],3),
     sim=rep(param$sims[i],3),
+    uc=rep(param$uc[i],3),
     method=row.names(pscore_df),
     score=c(as.numeric(pscore_df[1,1]),as.numeric(pscore_df[2,1]), as.numeric(pscore_df[3,1])),
     se=c(as.numeric(pscore_df[1,2]),as.numeric(pscore_df[2,2]), as.numeric(pscore_df[3,2])),
