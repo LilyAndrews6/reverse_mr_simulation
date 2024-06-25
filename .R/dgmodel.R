@@ -6,28 +6,30 @@ gx_to_gp <- function(gx, h2x, prev){
 }
 
 dgmodel <- function(
-  nid, 
-  b_gcc0,
-  b_u2c0,
-  gr_maf,
-  nsnp,
-  h2_known,
-  h2_unknown,
-  b_c0l,
-  b_u2l,
-  rsq_gr0,
-  rsq_lr0,
-  b_u1r0,
-  b_u1l,
-  d_prev,
-  b_c0c1,
-  b_u2c1,
-  b_dc1,
-  b_r0r1,
-  b_u1r1,
-  b_dr1,
-  b_dx1, 
-  b_x0x1
+    nid, 
+    b_gcc0,
+    b_u2c0,
+    gr_maf,
+    nsnp,
+    h2_known,
+    h2_unknown,
+    b_c0l,
+    b_u2l,
+    rsq_gr0,
+    rsq_lr0,
+    b_u1r0,
+    b_u1l,
+    d_prev,
+    b_c0c1,
+    b_u2c1,
+    b_dc1,
+    b_r0r1,
+    b_u1r1,
+    b_dr1,
+    b_dx1, 
+    b_x0x1, 
+    gprs_rsq, 
+    gprs_maf
 )  #assuming variance of genetic liability is 1
 {
   u1 <- rnorm(nid) #normal distribution of unmeasured confounder
@@ -35,8 +37,8 @@ dgmodel <- function(
   u2 <- rnorm(nid) #normal distribution of unmeasured confounder
   
   gwashits <- tribble(
-    ~beta, ~af,
-    0.26, 0.54
+    ~rsq, ~af,
+    0.0007677501, 0.2141#0.351788, 0.0911 #rs75061358
   ) #known causal variants from glioma gwas data
   
   gc <- sapply(gwashits$af, \(x) rbinom(nid, 2, x)) #create genotype matrix for causal variant
@@ -46,13 +48,13 @@ dgmodel <- function(
   x0 <- rnorm(nid) #consequence of disease protein pre-disease
   
   #gr_maf <- runif(nsnp, 0.01, 0.99)
-  gprs_maf <- rep(gr_maf, nsnp) #create minor allele frequency for each snp
+  gprs_maf <- gprs_maf#rep(gr_maf, nsnp) #create minor allele frequency for each snp
   
-  prs_b <- rnorm(nsnp) #randomly generated betas for prs
+  prs_rsq <- gprs_rsq #randomly generated betas for prs
   
   gprs <- make_geno(nid, nsnp, gprs_maf) #create genotype matrix for prs
   
-  prs_known <- (gprs %*% prs_b) %>% {scale(.) * sqrt(h2_known)} #generate known prs
+  prs_known <- (gprs %*% prs_rsq) %>% {scale(.) * sqrt(h2_known)} #generate known prs
   
   prs_unknown <- rnorm(nid, 0, sd = sqrt(h2_unknown)) #generate unknown prs
   
@@ -81,4 +83,4 @@ dgmodel <- function(
   phen <- tibble(
     u1, u2, r0, r1, c0, c1, prs, l, prob_l, d, x1, x0
   )  
-return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat, af=gprs_maf))}
+  return(list(geno_gc=gc,geno_prs=gprs, geno_gr=gr, phen=phen, geno_join=join_mat, af=gprs_maf))}

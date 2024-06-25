@@ -183,7 +183,7 @@ all_assoc <- function(dat)
 rev_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals prot 
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_gc[ind, ] #change this to gc
   geno_mat <- data.matrix(genosubset)
@@ -223,7 +223,7 @@ rev_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase)
 rev_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals 
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_prs[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -263,7 +263,7 @@ rev_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase)
 rev_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals 
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   #d[d=="1"] <- 2 ##check this converting all disease phenotype to 2 as proteins consequence of disease only in diseased individuals?
   genosubset <- dat$geno_prs[ind, ] #CHECK THIS
@@ -304,7 +304,7 @@ rev_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
 fwd_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals 
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_gc[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -344,7 +344,7 @@ fwd_mr_prot_p1 <- function(dat, n_protein_gwas, ncontrol, ncase)
 fwd_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals 
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_prs[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -384,7 +384,7 @@ fwd_mr_prot_p2 <- function(dat, n_protein_gwas, ncontrol, ncase)
 fwd_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
 {
   phen <- dat$phen
-  prot <- phen[1:n_protein_gwas, ] #first group of protein individuals prot <- phen[phen$d==0,][1:n_protein_gwas, ]
+  prot <- phen[phen$d==0,][1:n_protein_gwas, ] #first group of protein individuals
   ind <- do.call(paste0, dat$phen) %in% do.call(paste0, prot)
   genosubset <- dat$geno_prs[ind, ]
   geno_mat <- data.matrix(genosubset)
@@ -419,7 +419,7 @@ fwd_mr_prot_p3 <- function(dat, n_protein_gwas, ncontrol, ncase)
     return(mr_res)
   }}
 
-##cc p1
+##nested cc p1
 
 nested_case_control_p1 <- function(dat, nestedcase, nestedcontrol)
 {
@@ -429,7 +429,7 @@ nested_case_control_p1 <- function(dat, nestedcase, nestedcontrol)
   return(log_nested)
 } 
 
-##cc p2
+##nested cc p2
 
 nested_case_control_p2 <- function(dat, nestedcase, nestedcontrol)
 {
@@ -439,7 +439,7 @@ nested_case_control_p2 <- function(dat, nestedcase, nestedcontrol)
   return(log_nested)
 } 
 
-##cc p3
+##nested cc p3
 
 nested_case_control_p3 <- function(dat, nestedcase, nestedcontrol)
 {
@@ -447,6 +447,36 @@ nested_case_control_p3 <- function(dat, nestedcase, nestedcontrol)
   nested <- bind_rows(phen[phen$d == 0,][1:nestedcase,], phen[phen$d == 1,][1:nestedcontrol,]) #487 example based on nested case control study
   log_nested<- logistic_assoc(y=nested$d, x=nested$x0) #case control estimate 
   return(log_nested)
+} 
+
+##cc p1
+
+case_control_p1 <- function(dat, case, control)
+{
+  phen <- dat$phen
+  cc <- bind_rows(phen[phen$d == 0,][1:case,], phen[phen$d == 1,][1:control,]) #487 example based on nested case control study
+  log_cc<- logistic_assoc(y=cc$d, x=cc$c1)  #case control estimate 
+  return(log_cc)
+} 
+
+##cc p2
+
+case_control_p2 <- function(dat, case, control)
+{
+  phen <- dat$phen
+  cc <- bind_rows(phen[phen$d == 0,][1:case,], phen[phen$d == 1,][1:control,]) #487 example based on nested case control study
+  log_cc<- logistic_assoc(y=cc$d, x=cc$r1)  #case control estimate 
+  return(log_cc)
+} 
+
+##cc p3
+
+case_control_p3 <- function(dat, case, control)
+{
+  phen <- dat$phen
+  cc <- bind_rows(phen[phen$d == 0,][1:case,], phen[phen$d == 1,][1:control,]) #487 example based on nested case control study
+  log_cc<- logistic_assoc(y=cc$d, x=cc$x1) #case control estimate 
+  return(log_cc)
 } 
 
 ##create protein score and create model
@@ -460,10 +490,19 @@ score_model <- function(betas, testing_dat, nid)
 
 ##create protein score and create model for case control analysis
 
-score_model_cc <- function(betas, testing_dat, nid)
+score_model_ncc <- function(betas, testing_dat, nid)
 {
   betas$bhat <- as.numeric(betas$bhat)
   score <- betas$bhat[1]*testing_dat$phen$c0 + betas$bhat[2]*testing_dat$phen$r0 + betas$bhat[3]*testing_dat$phen$x0
+  lm_model <- glm(testing_dat$phen$d ~ score, family = "binomial")
+  model <- coef(summary(lm_model))[2,]
+  return(model)
+}
+
+score_model_cc <- function(betas, testing_dat, nid)
+{
+  betas$bhat <- as.numeric(betas$bhat)
+  score <- betas$bhat[1]*testing_dat$phen$c1 + betas$bhat[2]*testing_dat$phen$r1 + betas$bhat[3]*testing_dat$phen$x1
   lm_model <- glm(testing_dat$phen$d ~ score, family = "binomial")
   model <- coef(summary(lm_model))[2,]
   return(model)
